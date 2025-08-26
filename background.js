@@ -1,5 +1,7 @@
 // Basic background orchestration and messaging
 import { initDefaults, getSettings, mergeAssignments } from './storage.js';
+import { syncAssignments } from './todoist.js';
+import { testConnection } from './todoist.js';
 
 chrome.runtime.onInstalled.addListener(async () => {
   await initDefaults();
@@ -18,6 +20,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     scrapeAndMaybeSync().then(() => sendResponse({ ok: true })).catch(e => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
+  if (msg?.type === 'TEST_TODOIST_TOKEN') {
+    testConnection(msg.token).then(ok => sendResponse({ ok })).catch(() => sendResponse({ ok: false }));
+    return true;
+  }
 });
 
 async function scrapeAndMaybeSync() {
@@ -32,7 +38,8 @@ async function scrapeAndMaybeSync() {
 
   const settings = await getSettings();
   if (settings?.TODOIST_TOKEN) {
-    await chrome.storage.local.set({ lastSyncAt: Date.now() });
+    const result = await syncAssignments(merged);
+    await chrome.storage.local.set({ lastSyncAt: Date.now(), lastSyncResult: result });
   }
 }
 

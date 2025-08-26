@@ -5,7 +5,8 @@
   "description": "Scrape Moodle assignments and sync to Todoist.",
   "permissions": [
     "storage",
-    "alarms"
+    "alarms",
+    "tabs"
   ],
   "host_permissions": [
     "https://YOUR_MOODLE_DOMAIN/*",

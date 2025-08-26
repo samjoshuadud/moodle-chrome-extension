@@ -7,8 +7,16 @@ document.getElementById('scrapeSyncBtn').addEventListener('click', async () => {
 
 async function refreshMeta() {
   const { assignments = [] } = await chrome.storage.local.get('assignments');
-  const { lastSyncAt, lastMergeAt } = await chrome.storage.local.get(['lastSyncAt', 'lastMergeAt']);
-  const txt = `Assignments: ${assignments.length} | Merged: ${fmt(lastMergeAt)} | Synced: ${fmt(lastSyncAt)}`;
+  const { lastSyncAt, lastMergeAt, lastSyncResult } = await chrome.storage.local.get(['lastSyncAt', 'lastMergeAt', 'lastSyncResult']);
+  const parts = [];
+  parts.push(`Assignments: ${assignments.length}`);
+  parts.push(`Merged: ${fmt(lastMergeAt)}`);
+  parts.push(`Synced: ${fmt(lastSyncAt)}`);
+  if (lastSyncResult) {
+    const r = lastSyncResult;
+    parts.push(`(+${r.new_created || 0} / ~${r.existing_updated || 0})`);
+  }
+  const txt = parts.join(' | ');
   document.getElementById('meta').textContent = txt;
 }
 

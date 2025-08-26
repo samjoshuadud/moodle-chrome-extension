@@ -1,21 +1,45 @@
 // Minimal Moodle DOM scraper placeholder
 
 async function extractAssignmentsFromDom() {
-  const nodes = Array.from(document.querySelectorAll(".activity, .assignment"));
-  const items = nodes.map(node => {
-    const title = node.querySelector(".instancename, a")?.textContent?.trim() || "";
-    const course = document.querySelector("#page-header h1, .page-header-headings h1")?.textContent?.trim() || "";
-    const url = node.querySelector("a")?.href || location.href;
+  // Common Moodle structures: course view and activity list
+  const candidates = new Set();
+  qsa('.activity, li.activity, .activityinstance, .modtype_assign, .modtype_quiz').forEach(n => candidates.add(n));
+  qsa('table.generaltable, .assign-table, .quizinfo').forEach(n => candidates.add(n));
 
-    // Try to locate due text
-    const text = node.textContent || "";
-    const dueMatch = text.match(/due\s*:?\s*([A-Za-z]{3,}\s+\d{1,2},\s+\d{4})/i);
-    const dueDate = dueMatch ? new Date(dueMatch[1]).toISOString().slice(0,10) : "";
-
-    return normalizeAssignment({ title, raw_title: title, course, url, due_date: dueDate });
-  }).filter(Boolean);
-
+  const items = [];
+  candidates.forEach(node => {
+    const title = (qs(node, '.instancename')?.textContent || qs(node, 'a')?.textContent || '').trim();
+    const course = (qs(document, '#page-header h1')?.textContent || qs(document, '.page-header-headings h1')?.textContent || '').trim();
+    const url = qs(node, 'a')?.href || location.href;
+    const dueDate = parseDueDate(node);
+    if (title) items.push(normalizeAssignment({ title, raw_title: title, course, url, due_date: dueDate }));
+  });
   return items;
+}
+
+function parseDueDate(root) {
+  // Look for typical labels: Due, Deadline, Closes, Due date
+  const text = (root.textContent || '').replace(/\s+/g, ' ');
+  const patterns = [
+    /Due\s*:?[\s\-]*(\w+\s+\d{1,2},\s+\d{4})/i,
+    /Due date\s*:?[\s\-]*(\w+\s+\d{1,2},\s+\d{4})/i,
+    /Deadline\s*:?[\s\-]*(\w+\s+\d{1,2},\s+\d{4})/i,
+    /Closes\s*:?[\s\-]*(\w+\s+\d{1,2},\s+\d{4})/i
+  ];
+  for (const re of patterns) {
+    const m = text.match(re);
+    if (m) {
+      const d = new Date(m[1]);
+      if (!isNaN(d.getTime())) return d.toISOString().slice(0,10);
+    }
+  }
+  // Fallback: ISO-like in DOM
+  const timeEl = qs(root, 'time[datetime]');
+  if (timeEl && timeEl.getAttribute('datetime')) {
+    const d = new Date(timeEl.getAttribute('datetime'));
+    if (!isNaN(d.getTime())) return d.toISOString().slice(0,10);
+  }
+  return '';
 }
 
 function normalizeAssignment(a) {
@@ -57,5 +81,8 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 });
+
+function qs(root, sel) { return (root || document).querySelector(sel); }
+function qsa(sel) { return Array.from(document.querySelectorAll(sel)); }
 
 

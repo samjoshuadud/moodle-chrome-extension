@@ -1,4 +1,5 @@
 const saveBtn = document.getElementById('saveBtn');
+const testBtn = document.getElementById('testBtn');
 const tokenEl = document.getElementById('token');
 const projectEl = document.getElementById('project');
 const intervalEl = document.getElementById('interval');
@@ -23,6 +24,14 @@ saveBtn.addEventListener('click', async () => {
   chrome.alarms.clear('scheduledScrape', () => {
     chrome.alarms.create('scheduledScrape', { periodInMinutes: settings.scrapeIntervalMinutes });
   });
+});
+
+testBtn.addEventListener('click', async () => {
+  const token = (document.getElementById('token').value || '').trim();
+  if (!token) { statusEl.textContent = 'Enter token first'; return; }
+  statusEl.textContent = 'Testing...';
+  const res = await chrome.runtime.sendMessage({ type: 'TEST_TODOIST_TOKEN', token }).catch(() => ({ ok: false }));
+  statusEl.textContent = res?.ok ? 'Token OK' : 'Token failed';
 });
 
 load();
