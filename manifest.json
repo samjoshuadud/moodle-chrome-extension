@@ -9,7 +9,7 @@
     "tabs"
   ],
   "host_permissions": [
-    "https://YOUR_MOODLE_DOMAIN/*",
+    "https://tbl.umak.edu.ph/*",
     "https://api.todoist.com/*"
   ],
   "background": {
@@ -21,12 +21,18 @@
     "default_popup": "popup.html"
   },
   "options_page": "options.html",
+  "web_accessible_resources": [
+    {
+      "resources": ["tests.html"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "content_scripts": [
     {
-      "matches": ["https://YOUR_MOODLE_DOMAIN/*"],
+      "matches": ["https://tbl.umak.edu.ph/*"],
       "js": ["content.js"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ]
 }
-

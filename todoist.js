@@ -38,6 +38,15 @@ export async function getOrCreateProject(projectName, token) {
   return proj.id;
 }
 
+export async function getProjectIdIfExists(projectName, token) {
+  const h = headers(token);
+  const list = await fetch(`${TODOIST_BASE}/projects`, { headers: h });
+  if (!list.ok) return null;
+  const projects = await list.json();
+  const found = projects.find(p => p.name === projectName);
+  return found ? found.id : null;
+}
+
 export function calculateReminderDate(assignment) {
   const dueStr = assignment?.due_date || '';
   const openStr = assignment?.opening_date || '';
