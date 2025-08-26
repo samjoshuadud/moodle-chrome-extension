@@ -329,12 +329,34 @@ function normalizeAssignment(a) {
   const task_id = generateTaskId(a.title, course_code, a.url);
   // Normalize title
   const title_normalized = (a.title || '').toLowerCase().replace(/\s+/g, ' ').trim();
-  // Opening date: try to extract from DOM, else fallback
+  // Improved opening date extraction: try multiple patterns and <time> elements
   let opening_date = "No opening date";
   if (a.node) {
     const openText = (a.node.textContent || '').replace(/\s+/g, ' ');
-    const openMatch = openText.match(/Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i);
-    if (openMatch) opening_date = openMatch[1];
+    const openPatterns = [
+      /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+      /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+      /Open(?:ing)?\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i,
+      /Available from\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+      /Available from\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+      /Available from\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i,
+      /Opens\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+      /Opens\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+      /Opens\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i
+    ];
+    for (const re of openPatterns) {
+      const m = openText.match(re);
+      if (m) {
+        opening_date = m[1];
+        break;
+      }
+    }
+    // Try <time datetime="..."> for opening date
+    const timeEl = a.node.querySelector('time[datetime]');
+    if (timeEl && timeEl.getAttribute('datetime')) {
+      const d = new Date(timeEl.getAttribute('datetime'));
+      if (!isNaN(d.getTime())) opening_date = d.toISOString().slice(0, 10);
+    }
   }
   // Added date: current date/time
   const added_date = new Date().toISOString().replace('T', ' ').slice(0, 19);
