@@ -15,7 +15,7 @@ async function scrapeAllCourses() {
       const assignments = await Promise.resolve(extractAssignmentsFromDom(dom));
       if (assignments.length) {
         console.log(`🔍 ${link} yielded ${assignments.length} items`);
-        assignments.slice(0, 3).forEach(a =>
+        assignments.forEach(a =>
           console.log(`   - ${a.title} (due: ${a.due_date})`)
         );
       }
@@ -75,6 +75,22 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
   const forumPromises = [];
   qsa(rootDoc, '.modtype_forum').forEach(node => {
     let dueDate = parseDueDate(node);
+    if (!dueDate) {
+      // Try to find more flexible date formats in DOM text
+      const text = (node.textContent || '').replace(/\s+/g, ' ');
+      const extraPatterns = [
+        /Due\s*:?[\s\-]*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+        /Due\s*:?[\s\-]*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+        /Due\s*:?[\s\-]*([\d]{4}-[\d]{2}-[\d]{2})/i
+      ];
+      for (const re of extraPatterns) {
+        const m = text.match(re);
+        if (m) {
+          dueDate = m[1];
+          break;
+        }
+      }
+    }
     if (dueDate) {
       candidates.add(node);
     } else {
@@ -85,12 +101,14 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
           fetch(url, { credentials: 'include' })
             .then(r => r.text())
             .then(html => {
-              // Use same patterns as parseDueDate
+              // Use more flexible patterns for forum page
               const patterns = [
-                /Due\s*:?[\s\-]*(\w+\s+\d{1,2},\s+\d{4})/i,
-                /Due date\s*:?[\s\-]*(\w+\s+\d{1,2},\s+\d{4})/i,
-                /Deadline\s*:?[\s\-]*(\w+\s+\d{1,2},\s+\d{4})/i,
-                /Closes\s*:?[\s\-]*(\w+\s+\d{1,2},\s+\d{4})/i
+                /Due\s*:?[\s\-]*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+                /Due\s*:?[\s\-]*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+                /Due date\s*:?[\s\-]*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+                /Deadline\s*:?[\s\-]*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+                /Closes\s*:?[\s\-]*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+                /Due\s*:?[\s\-]*([\d]{4}-[\d]{2}-[\d]{2})/i
               ];
               for (const re of patterns) {
                 const m = html.match(re);
@@ -126,7 +144,45 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
       const title = (qs(node, '.instancename')?.textContent || qs(node, 'a')?.textContent || '').trim();
       const course = (qs(rootDoc, '#page-header h1')?.textContent || qs(rootDoc, '.page-header-headings h1')?.textContent || '').trim();
       const url = qs(node, 'a')?.href || location.href;
-      const dueDate = parseDueDate(node) || "No due date";
+      // Improved due date extraction: try multiple patterns and <time> elements
+      let dueDate = parseDueDate(node);
+      if (!dueDate) {
+        const text = (node.textContent || '').replace(/\s+/g, ' ');
+        const extraPatterns = [
+          /Due\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+          /Due\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+          /Due\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i
+        ];
+        for (const re of extraPatterns) {
+          const m = text.match(re);
+          if (m) {
+            dueDate = m[1];
+            break;
+          }
+        }
+        // Try <time datetime="...">
+        const timeEl = qs(node, 'time[datetime]');
+        if (timeEl && timeEl.getAttribute('datetime')) {
+          const d = new Date(timeEl.getAttribute('datetime'));
+          if (!isNaN(d.getTime())) dueDate = d.toISOString().slice(0, 10);
+        }
+      }
+      dueDate = dueDate || "No due date";
+      // Improved opening date extraction
+      let opening_date = "No opening date";
+      const openText = (node.textContent || '').replace(/\s+/g, ' ');
+      const openPatterns = [
+        /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+        /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+        /Open(?:ing)?\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i
+      ];
+      for (const re of openPatterns) {
+        const m = openText.match(re);
+        if (m) {
+          opening_date = m[1];
+          break;
+        }
+      }
       const activity_type = detectActivityType(node, title);
 
       // Skip duplicates and lessons/resources unless included
@@ -137,30 +193,25 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
 
       // Determine status using smart detection (support async)
       const status = getCompletionStatus(node, activity_type, url);
+      const assignmentObj = {
+        title,
+        raw_title: title,
+        course,
+        url,
+        due_date: dueDate,
+        opening_date,
+        activity_type,
+        status,
+        node // pass node for normalization if needed
+      };
       if (status instanceof Promise) {
         promises.push(
           status.then(resolvedStatus =>
-            normalizeAssignment({ 
-              title, 
-              raw_title: title, 
-              course, 
-              url, 
-              due_date: dueDate, 
-              activity_type, 
-              status: resolvedStatus 
-            })
+            normalizeAssignment({ ...assignmentObj, status: resolvedStatus })
           )
         );
       } else {
-        items.push(normalizeAssignment({ 
-          title, 
-          raw_title: title, 
-          course, 
-          url, 
-          due_date: dueDate, 
-          activity_type, 
-          status 
-        }));
+        items.push(normalizeAssignment(assignmentObj));
       }
     });
     if (promises.length) {
@@ -276,16 +327,36 @@ function parseDueDate(root) {
 function normalizeAssignment(a) {
   const course_code = extractCourseCode(a.course);
   const task_id = generateTaskId(a.title, course_code, a.url);
+  // Normalize title
+  const title_normalized = (a.title || '').toLowerCase().replace(/\s+/g, ' ').trim();
+  // Opening date: try to extract from DOM, else fallback
+  let opening_date = "No opening date";
+  if (a.node) {
+    const openText = (a.node.textContent || '').replace(/\s+/g, ' ');
+    const openMatch = openText.match(/Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i);
+    if (openMatch) opening_date = openMatch[1];
+  }
+  // Added date: current date/time
+  const added_date = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  // Origin URL
+  const origin_url = a.url;
+  // Last updated: current date/time
+  const last_updated = new Date().toISOString().replace('T', ' ').slice(0, 19);
   return {
     title: a.title,
+    title_normalized,
     raw_title: a.raw_title,
+    due_date: a.due_date,
+    opening_date,
     course: a.course,
     course_code,
-    due_date: a.due_date,
     status: a.status,
     task_id,
     activity_type: a.activity_type,
-    source: "Moodle"
+    source: "scrape",
+    origin_url,
+    added_date,
+    last_updated
   };
 }
 
@@ -311,10 +382,11 @@ function extractCourseCode(course) {
 }
 
 function generateTaskId(title, courseCode, url) {
-  const data = `${title}::${courseCode}::${url}`;
-  let h = 0;
-  for (let i = 0; i < data.length; i++) h = (h * 31 + data.charCodeAt(i)) >>> 0;
-  return `t${h}`;
+  // Extract numeric id from URL (e.g., ...id=1234)
+  const match = url.match(/id=(\d+)/);
+  if (match) return match[1];
+  // Fallback: use entire URL if no id found
+  return url;
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
