@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Options</title>
+  <style>
+    body { font-family: sans-serif; margin: 16px; max-width: 720px; }
+    label { display: block; margin: 12px 0 4px; }
+    input { width: 420px; }
+  </style>
+  <script src="options.js" defer></script>
+</head>
+<body>
+  <h2>Settings</h2>
+  <label>Todoist Token</label>
+  <input type="password" id="token" placeholder="e.g. 0123abcd..." />
+  <label>Project Name</label>
+  <input type="text" id="project" value="School Assignments" />
+  <label>Scrape Interval (minutes)</label>
+  <input type="number" id="interval" value="60" min="5" max="1440" />
+  <div style="margin-top: 12px;">
+    <button id="saveBtn">Save</button>
+    <span id="status" style="margin-left: 8px;"></span>
+  </div>
+</body>
+</html>
+
+
