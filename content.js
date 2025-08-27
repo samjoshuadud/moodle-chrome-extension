@@ -144,20 +144,46 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
       const title = (qs(node, '.instancename')?.textContent || qs(node, 'a')?.textContent || '').trim();
       const course = (qs(rootDoc, '#page-header h1')?.textContent || qs(rootDoc, '.page-header-headings h1')?.textContent || '').trim();
       const url = qs(node, 'a')?.href || location.href;
-      // Improved due date extraction: try multiple patterns and <time> elements
+      // Improved due date extraction: try multiple patterns, relative formats, and <time> elements
       let dueDate = parseDueDate(node);
       if (!dueDate) {
         const text = (node.textContent || '').replace(/\s+/g, ' ');
+        // Absolute date patterns
         const extraPatterns = [
-          /Due\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
-          /Due\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
-          /Due\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i
+          /Due\s*:?:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+          /Due\s*:?:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+          /Due\s*:?:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i,
+          /The due date is (?:on )?([A-Za-z]+,? [A-Za-z]+ \d{1,2}, \d{4},? \d{1,2}:\d{2} ?[APMapm]{2})/i,
+          /The due date is (?:on )?([A-Za-z]+,? [A-Za-z]+ \d{1,2}, \d{4})/i
         ];
         for (const re of extraPatterns) {
           const m = text.match(re);
           if (m) {
             dueDate = m[1];
             break;
+          }
+        }
+        // Relative weekday pattern: "The due date is on Monday at 6 PM"
+        if (!dueDate) {
+          const relMatch = text.match(/due date is on ([A-Za-z]+) at (\d{1,2}) ?([APMapm]{2})/i);
+          if (relMatch) {
+            const weekday = relMatch[1];
+            let hour = parseInt(relMatch[2], 10);
+            const ampm = relMatch[3];
+            // Compute next occurrence of weekday from today
+            const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+            const today = new Date();
+            let dayIdx = daysOfWeek.findIndex(d => d.toLowerCase() === weekday.toLowerCase());
+            if (dayIdx >= 0) {
+              let diff = (dayIdx - today.getDay() + 7) % 7;
+              if (diff === 0) diff = 7; // always next week if today
+              let due = new Date(today);
+              due.setDate(today.getDate() + diff);
+              if (/pm/i.test(ampm) && hour < 12) hour += 12;
+              if (/am/i.test(ampm) && hour === 12) hour = 0;
+              due.setHours(hour, 0, 0, 0);
+              dueDate = due.toISOString().replace('T', ' ').slice(0, 16);
+            }
           }
         }
         // Try <time datetime="...">
