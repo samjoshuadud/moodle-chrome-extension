@@ -1,9 +1,5 @@
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "SCRAPE_ASSIGNMENTS") {
-    // Show loading UI first
-    if (window.showSidebarLoading) {
-      window.showSidebarLoading("Scraping assignments...");
-    }
 
     // Run your scraping logic
     setTimeout(async () => {
@@ -58,6 +54,8 @@ function injectScrapeButton() {
   btn.style.cursor = "pointer";
   btn.style.boxShadow = "0 4px 8px rgba(0,0,0,0.2)";
   btn.style.transition = "background 0.2s";
+  btn.style.pointerEvents = 'auto'; // normal
+  btn.style.opacity = '1'; 
   btn.onmouseenter = () => (btn.style.background = "#004a99");
   btn.onmouseleave = () => (btn.style.background = "#06c");
 
@@ -79,8 +77,12 @@ function injectScrapeButton() {
 
   btn.onclick = async () => {
     btn.disabled = true; // disable button immediately
+    btn.style.pointerEvents = 'none'; // disable pointer events
+    btn.style.opacity = '0.6'; // reduce opacity
+    btn.textContent = "⏳ Loading...";
     try {
       if (!scraped) {
+        if (window.logToSidebar) window.logToSidebar("🔍 Starting scrape...");
         const scrapeRes = await chrome.runtime.sendMessage({ type: "SCRAPE_ONLY" });
 
         if (scrapeRes?.ok) {
@@ -111,6 +113,8 @@ function injectScrapeButton() {
       if (window.logToSidebar) window.logToSidebar("❌ Error: " + err.message, "error");
     } finally {
       btn.disabled = false; // re-enable after operation finishes
+      btn.style.pointerEvents = 'auto'; // re-enable pointer events
+      btn.style.opacity = '1'; // restore opacity
     }
   };
 
