@@ -21,7 +21,7 @@ function ensureSidebar() {
   sidebar.innerHTML = `
     <div style="padding:12px 16px; border-bottom:1px solid #ddd; background:#f9f9f9; display:flex; justify-content:space-between; align-items:center;">
       <b style="font-size:14px;">Moodle Todoist Log</b>
-      <button id="sidebar-close-btn" style="border:none;background:none;font-size:16px;cursor:pointer;">✕</button>
+      <button id="sidebar-close-btn" style="border:none;background:red;font-size:16px;cursor:pointer;">✕</button>
     </div>
     <div id="sidebar-content" style="padding:12px; font-size:13px; line-height:1.4;"></div>
   `;
