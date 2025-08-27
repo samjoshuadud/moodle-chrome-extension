@@ -1,3 +1,8 @@
+// --- Logging helper ---
+function log(...args) {
+  console.log('[Todoist]', ...args);
+}
+
 // Todoist REST v2 client and sync helpers
 
 import { getSettings } from './storage.js';
@@ -36,6 +41,93 @@ export async function getOrCreateProject(projectName, token) {
   if (!create.ok) return null;
   const proj = await create.json();
   return proj.id;
+}
+
+// Get all tasks for a project (optionally include completed)
+export async function getAllAssignmentsFromTodoist(projectName, token) {
+  try {
+    const projectId = await getProjectIdIfExists(projectName, token);
+    if (!projectId) return [];
+    const res = await fetch(`${TODOIST_BASE}/tasks?project_id=${encodeURIComponent(projectId)}`, { headers: headers(token) });
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (e) {
+    log('Error fetching assignments from Todoist:', e);
+    return [];
+  }
+}
+
+// Get project stats (number of tasks, etc.)
+export async function getProjectStats(projectName, token) {
+  try {
+    const projectId = await getProjectIdIfExists(projectName, token);
+    if (!projectId) return { total: 0, completed: 0 };
+    const res = await fetch(`${TODOIST_BASE}/tasks?project_id=${encodeURIComponent(projectId)}`, { headers: headers(token) });
+    if (!res.ok) return { total: 0, completed: 0 };
+    const tasks = await res.json();
+    // Todoist REST API does not return completed tasks by default
+    return { total: tasks.length, completed: 0 };
+  } catch (e) {
+    log('Error getting project stats:', e);
+    return { total: 0, completed: 0 };
+  }
+}
+
+// Update task completion status (close task)
+export async function updateTaskStatus(taskId, completed, token) {
+  try {
+    if (completed) {
+      // Close the task
+      const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}/close`, { method: 'POST', headers: headers(token) });
+      return res.status === 204;
+    } else {
+      // Reopen the task
+      const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}/reopen`, { method: 'POST', headers: headers(token) });
+      return res.status === 204;
+    }
+  } catch (e) {
+    log('Error updating task status:', e);
+    return false;
+  }
+}
+
+// Delete a task by assignment (using task_id in description)
+export async function deleteAssignmentTask(assignment, projectName, token) {
+  try {
+    const projectId = await getProjectIdIfExists(projectName, token);
+    if (!projectId) return false;
+    const tasks = await getAllAssignmentsFromTodoist(projectName, token);
+    const taskId = (tasks.find(t => extractTaskIdFromDescription(t.description) === assignment.task_id) || {}).id;
+    if (!taskId) return false;
+    return await deleteTask(taskId, token);
+  } catch (e) {
+    log('Error deleting assignment task:', e);
+    return false;
+  }
+}
+
+// Sync completion status from Todoist back to local assignments
+export async function syncStatusFromTodoist(localAssignments, projectName, token) {
+  try {
+    if (!Array.isArray(localAssignments)) return {};
+    const tasks = await getAllAssignmentsFromTodoist(projectName, token);
+    const statusMap = {};
+    for (const a of localAssignments) {
+      const tid = a.task_id;
+      const t = tasks.find(t => extractTaskIdFromDescription(t.description) === tid);
+      if (t) {
+        // Todoist REST API does not return completed tasks by default
+        statusMap[tid] = 'Pending';
+      } else {
+        // If not found, could be completed or deleted
+        statusMap[tid] = 'Completed';
+      }
+    }
+    return statusMap;
+  } catch (e) {
+    log('Error syncing status from Todoist:', e);
+    return {};
+  }
 }
 
 export async function getProjectIdIfExists(projectName, token) {

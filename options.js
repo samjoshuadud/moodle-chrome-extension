@@ -1,3 +1,13 @@
+const scrapeSyncBtn = document.getElementById('scrapeSyncBtn');
+
+scrapeSyncBtn?.addEventListener('click', async () => {
+  // Find the active tab (assume Moodle is open)
+  chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+    if (tabs && tabs[0] && tabs[0].id) {
+      chrome.tabs.sendMessage(tabs[0].id, { type: 'SHOW_SIDEBAR' });
+    }
+  });
+});
 const saveBtn = document.getElementById('saveBtn');
 const testBtn = document.getElementById('testBtn');
 const tokenEl = document.getElementById('token');

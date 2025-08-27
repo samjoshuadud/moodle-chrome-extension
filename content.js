@@ -1,3 +1,15 @@
+
+// NOTE: Do not use import here. Instead, ensure sidebar.js is loaded first in manifest.json content_scripts.
+// Functions like ensureSidebar, logToSidebar are now available globally.
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'SHOW_SIDEBAR') {
+    console.log("📣 Received SHOW_SIDEBAR message");
+    ensureSidebar();
+    logToSidebar('Sidebar opened from options page');
+    return;
+  }
+});
 console.log("✅ Moodle content script injected at", location.href);
 
 // === NEW: fetch all courses and scrape ===
