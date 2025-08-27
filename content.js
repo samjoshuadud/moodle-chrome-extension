@@ -81,7 +81,6 @@ function injectScrapeButton() {
     btn.disabled = true; // disable button immediately
     try {
       if (!scraped) {
-        if (window.showSidebarLoading) window.showSidebarLoading("🔍 Scraping...");
         const scrapeRes = await chrome.runtime.sendMessage({ type: "SCRAPE_ONLY" });
 
         if (scrapeRes?.ok) {
@@ -98,7 +97,8 @@ function injectScrapeButton() {
           if (window.logToSidebar) window.logToSidebar("❌ Scrape failed.", "error");
         }
       } else {
-        if (window.showSidebarLoading) window.showSidebarLoading("🔄 Syncing...");
+        if (window.clearSidebar) window.clearSidebar();
+        if (window.logToSidebar) window.logToSidebar("🔄 Starting sync...");
         const syncRes = await chrome.runtime.sendMessage({ type: "SYNC_ONLY" });
 
         if (syncRes?.ok) {
