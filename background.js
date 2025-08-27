@@ -63,7 +63,14 @@ async function scrapeAndMaybeSync() {
     return;
   }
 
-  const merged = await mergeAssignments(scraped);
+  const { assignments: merged, newOnes } = await mergeAssignments(scraped, { returnDiff: true });
+
+  // Forward results to sidebar with new info
+  await chrome.tabs.sendMessage(tabId, { 
+    type: "SHOW_SIDEBAR_RESULTS", 
+    assignments: merged, 
+    newIds: newOnes.map(a => a.id) 
+  });
 
   // 🔹 NEW: forward the scraped/merged assignments back to content.js → sidebar
   try {

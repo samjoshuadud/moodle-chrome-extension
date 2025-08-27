@@ -27,8 +27,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   if (msg?.type === "SHOW_SIDEBAR_RESULTS") {
     if (window.clearSidebar) window.clearSidebar();
-    if (window.showScrapedItems) window.showScrapedItems(msg.assignments || []);
-  }
+    if (window.showScrapedItems) {
+      window.showScrapedItems(msg.assignments || [], msg.newIds || []);
+    }
+}
+
 });
 
 
@@ -59,50 +62,21 @@ function injectScrapeButton() {
   btn.onmouseenter = () => (btn.style.background = "#004a99");
   btn.onmouseleave = () => (btn.style.background = "#06c");
 
- btn.onclick = async () => {
-  try {
-    if (window.showSidebarLoading) {
-      window.showSidebarLoading("🔍 Scraping assignments...");
-    }
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.textContent = "⟳ Scraping...";
 
-    // ⏳ Small delay to let Moodle finish rendering
-    setTimeout(async () => {
-      try {
-        // 🔹 BETTER: Check course page detection first with more flexible selectors
-        const onCoursePage = isOnCoursePage();
-        
-        if (!onCoursePage) {
-          if (window.logToSidebar) {
-            window.logToSidebar("⚠️ Please navigate to a course page first.", "warning");
-          }
-          showNavigateToCoursesModal();
-          return;
-        }
+    // 🔹 ask background to run scrapeAndMaybeSync
+    const res = await chrome.runtime.sendMessage({ type: "SCRAPE_AND_SYNC_NOW" })
+      .catch(() => ({ ok: false }));
 
-        const assignments = await extractAssignmentsFromDom();
-
-        if (window.clearSidebar) window.clearSidebar();
-
-        if (assignments && assignments.length > 0) {
-          if (window.showScrapedItems) window.showScrapedItems(assignments);
-        } else {
-          if (window.logToSidebar) window.logToSidebar("⚠️ No assignments found.");
-        }
-
-        // ✅ forward to background so it can merge/sync
-        chrome.runtime.sendMessage({ type: "SCRAPED_RESULTS", assignments });
-      } catch (err) {
-        if (window.logToSidebar) {
-          window.logToSidebar("❌ Scraping failed: " + err.message, "error");
-        }
-      }
-    }, 200);
-  } catch (err) {
-    if (window.logToSidebar) {
-      window.logToSidebar("❌ Scraping failed: " + err.message, "error");
-    }
-  }
-};
+    // 🔹 restore button state
+    btn.textContent = res?.ok ? "✅ Done" : "❌ Failed";
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.textContent = "⟳ Scrape";
+    }, 2000);
+  };
 
   document.body.appendChild(btn);
 }
@@ -110,10 +84,33 @@ function injectScrapeButton() {
 // Call directly
 injectScrapeButton();
 
+
+
 // As a fallback, also re-run after page load (in case of Moodle’s JS changes DOM later)
 document.addEventListener("readystatechange", () => {
   if (document.readyState === "complete") injectScrapeButton();
 });
+
+
+function renderGroupedAssignments(assignments) {
+  const container = document.createElement("div");
+  container.style.padding = "8px";
+
+  const heading = document.createElement("h3");
+  heading.textContent = `Scraped Items (total: ${assignments.length}):`;
+  container.appendChild(heading);
+
+  const list = document.createElement("ul");
+  assignments.forEach(a => {
+    const li = document.createElement("li");
+    li.textContent = `${a.title} — due: ${a.dueDate || "no due date"}`;
+    list.appendChild(li);
+  });
+  container.appendChild(list);
+
+  sidebar.appendChild(container);
+}
+
 
 function isOnCoursePage() {
   // Check multiple indicators that we're on a course page

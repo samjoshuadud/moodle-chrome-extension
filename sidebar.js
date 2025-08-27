@@ -49,11 +49,10 @@ function logToSidebar(msg, type = 'log') {
   content.scrollTop = content.scrollHeight;
 }
 
-function showScrapedItems(items) {
+function showScrapedItems(items, newIds = []) {
   ensureSidebar();
   const content = document.getElementById('sidebar-content');
   
-  // Group by course name
   const grouped = items.reduce((acc, item) => {
     const course = item.course || "Uncategorized";
     if (!acc[course]) acc[course] = [];
@@ -64,7 +63,6 @@ function showScrapedItems(items) {
   const div = document.createElement('div');
   div.innerHTML = `<b>Scraped Items (total: ${items.length}):</b>`;
 
-  // Build grouped lists
   Object.entries(grouped).forEach(([course, assignments]) => {
     const section = document.createElement('div');
     section.style.margin = '8px 0';
@@ -72,7 +70,9 @@ function showScrapedItems(items) {
       <div style="font-weight:bold;margin-top:10px;color:#06c;">${course} (${assignments.length})</div>
       <ul style="margin:4px 0 8px 16px; padding:0;">
         ${assignments.map(i => `
-          <li>${i.title} <small style="color:#888">(${i.due_date || 'no due'})</small></li>
+          <li style="${newIds.includes(i.task_id) ? 'background: #fffae6; font-weight:bold;' : ''}">
+            ${i.title} <small style="color:#888">(${i.due_date || 'no due'})</small>
+          </li>
         `).join('')}
       </ul>
     `;
