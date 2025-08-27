@@ -1,13 +1,36 @@
+// Functions like ensureSidebar, logToSidebar are now available globally.
 
-// NOTE: Do not use import here. Instead, ensure sidebar.js is loaded first in manifest.json content_scripts.
+
+
 // Functions like ensureSidebar, logToSidebar are now available globally.
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === 'SHOW_SIDEBAR') {
-    console.log("📣 Received SHOW_SIDEBAR message");
     ensureSidebar();
-    logToSidebar('Sidebar opened from options page');
+    logToSidebar('Sidebar opened from options page', 'info');
     return;
+  }
+  if (msg?.type === 'SCRAPE_AND_SYNC') {
+    ensureSidebar();
+    if (typeof showSidebarLoading === 'function') {
+      showSidebarLoading('Scraping assignments...');
+    } else {
+      clearSidebar();
+      logToSidebar('Scraping assignments...', 'info');
+    }
+    let scrapePromise;
+    if (location.pathname.includes("/my/courses.php")) {
+      scrapePromise = scrapeAllCourses();
+    } else {
+      scrapePromise = Promise.resolve(extractAssignmentsFromDom());
+    }
+    scrapePromise.then(assignments => {
+      clearSidebar();
+      showScrapedItems(assignments);
+      logToSidebar(`Scraped ${assignments.length} tasks.`, 'success');
+      sendResponse({ assignments });
+    });
+    return true;
   }
 });
 console.log("✅ Moodle content script injected at", location.href);
@@ -25,12 +48,7 @@ async function scrapeAllCourses() {
       const html = await fetch(link, { credentials: "include" }).then(r => r.text());
       const dom = new DOMParser().parseFromString(html, "text/html");
       const assignments = await Promise.resolve(extractAssignmentsFromDom(dom));
-      if (assignments.length) {
-        console.log(`🔍 ${link} yielded ${assignments.length} items`);
-        assignments.forEach(a =>
-          console.log(`   - ${a.title} (due: ${a.due_date})`)
-        );
-      }
+      // No console.log, sidebar will show scraped items
       allAssignments.push(...assignments);
     } catch (e) {
       console.error("❌ Failed to fetch course", link, e);
@@ -452,12 +470,25 @@ function generateTaskId(title, courseCode, url) {
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "SCRAPE_ASSIGNMENTS") {
     if (location.pathname.includes("/my/courses.php")) {
-      scrapeAllCourses().then(assignments => sendResponse({ assignments }));
+      scrapeAllCourses().then(assignments => {
+        sendResponse({ assignments });
+      });
       return true;
     } else {
-      Promise.resolve(extractAssignmentsFromDom()).then(assignments => sendResponse({ assignments }));
+      Promise.resolve(extractAssignmentsFromDom()).then(assignments => {
+        sendResponse({ assignments });
+      });
       return true;
     }
+  }
+  return false;
+});
+
+document.addEventListener('keydown', (e) => {
+  // Ctrl+Shift+L to open sidebar and log a test message
+  if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+    ensureSidebar();
+    logToSidebar('Sidebar opened via Ctrl+Shift+L');
   }
 });
 

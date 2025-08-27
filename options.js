@@ -4,7 +4,7 @@ scrapeSyncBtn?.addEventListener('click', async () => {
   // Find the active tab (assume Moodle is open)
   chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
     if (tabs && tabs[0] && tabs[0].id) {
-      chrome.tabs.sendMessage(tabs[0].id, { type: 'SHOW_SIDEBAR' });
+      chrome.tabs.sendMessage(tabs[0].id, { type: 'SCRAPE_AND_SYNC' });
     }
   });
 });
