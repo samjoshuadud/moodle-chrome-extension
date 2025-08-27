@@ -1,39 +1,170 @@
-// Functions like ensureSidebar, logToSidebar are now available globally.
-
-
-
-// Functions like ensureSidebar, logToSidebar are now available globally.
-
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === 'SHOW_SIDEBAR') {
-    ensureSidebar();
-    logToSidebar('Sidebar opened from options page', 'info');
-    return;
+  if (msg?.type === "SCRAPE_ASSIGNMENTS") {
+    // Show loading UI first
+    if (window.showSidebarLoading) {
+      window.showSidebarLoading("Scraping assignments...");
+    }
+
+    // Run your scraping logic
+    setTimeout(async () => {
+      try {
+        const assignments = await extractAssignmentsFromDom(); // <-- your scraper
+        console.log("Scraped assignments:", assignments);
+
+        if (window.clearSidebar) window.clearSidebar();
+        if (window.showScrapedItems) window.showScrapedItems(assignments);
+
+        sendResponse({ assignments });
+      } catch (err) {
+        console.error("Scraping failed:", err);
+        if (window.logToSidebar) window.logToSidebar("Scraping failed: " + err.message, "error");
+        sendResponse({ assignments: [], error: String(err) });
+      }
+    }, 200);
+
+    return true; // async response
   }
-  if (msg?.type === 'SCRAPE_AND_SYNC') {
-    ensureSidebar();
-    if (typeof showSidebarLoading === 'function') {
-      showSidebarLoading('Scraping assignments...');
-    } else {
-      clearSidebar();
-      logToSidebar('Scraping assignments...', 'info');
-    }
-    let scrapePromise;
-    if (location.pathname.includes("/my/courses.php")) {
-      scrapePromise = scrapeAllCourses();
-    } else {
-      scrapePromise = Promise.resolve(extractAssignmentsFromDom());
-    }
-    scrapePromise.then(assignments => {
-      clearSidebar();
-      showScrapedItems(assignments);
-      logToSidebar(`Scraped ${assignments.length} tasks.`, 'success');
-      sendResponse({ assignments });
-    });
-    return true;
+
+  if (msg?.type === "SHOW_SIDEBAR_RESULTS") {
+    if (window.clearSidebar) window.clearSidebar();
+    if (window.showScrapedItems) window.showScrapedItems(msg.assignments || []);
   }
 });
+
+
+
 console.log("✅ Moodle content script injected at", location.href);
+
+// === Inject Floating Button ===
+function injectScrapeButton() {
+  if (document.getElementById("moodle-scrape-btn")) return;
+
+  const btn = document.createElement("button");
+  btn.id = "moodle-scrape-btn";
+  btn.textContent = "⟳ Scrape";
+  btn.style.position = "fixed";
+  btn.style.bottom = "20px";
+  btn.style.right = "20px";
+  btn.style.zIndex = "2147483647";
+  btn.style.background = "#06c";
+  btn.style.color = "#fff";
+  btn.style.border = "none";
+  btn.style.padding = "10px 14px";
+  btn.style.borderRadius = "50px";
+  btn.style.fontSize = "14px";
+  btn.style.cursor = "pointer";
+  btn.style.boxShadow = "0 4px 8px rgba(0,0,0,0.2)";
+  btn.style.transition = "background 0.2s";
+
+  btn.onmouseenter = () => (btn.style.background = "#004a99");
+  btn.onmouseleave = () => (btn.style.background = "#06c");
+
+ btn.onclick = async () => {
+  try {
+    if (window.showSidebarLoading) {
+      window.showSidebarLoading("🔍 Scraping assignments...");
+    }
+
+    // ⏳ Small delay to let Moodle finish rendering
+    setTimeout(async () => {
+      try {
+        // 🔹 BETTER: Check course page detection first with more flexible selectors
+        const onCoursePage = isOnCoursePage();
+        
+        if (!onCoursePage) {
+          if (window.logToSidebar) {
+            window.logToSidebar("⚠️ Please navigate to a course page first.", "warning");
+          }
+          showNavigateToCoursesModal();
+          return;
+        }
+
+        const assignments = await extractAssignmentsFromDom();
+
+        if (window.clearSidebar) window.clearSidebar();
+
+        if (assignments && assignments.length > 0) {
+          if (window.showScrapedItems) window.showScrapedItems(assignments);
+        } else {
+          if (window.logToSidebar) window.logToSidebar("⚠️ No assignments found.");
+        }
+
+        // ✅ forward to background so it can merge/sync
+        chrome.runtime.sendMessage({ type: "SCRAPED_RESULTS", assignments });
+      } catch (err) {
+        if (window.logToSidebar) {
+          window.logToSidebar("❌ Scraping failed: " + err.message, "error");
+        }
+      }
+    }, 200);
+  } catch (err) {
+    if (window.logToSidebar) {
+      window.logToSidebar("❌ Scraping failed: " + err.message, "error");
+    }
+  }
+};
+
+  document.body.appendChild(btn);
+}
+
+// Call directly
+injectScrapeButton();
+
+// As a fallback, also re-run after page load (in case of Moodle’s JS changes DOM later)
+document.addEventListener("readystatechange", () => {
+  if (document.readyState === "complete") injectScrapeButton();
+});
+
+function isOnCoursePage() {
+  // Check multiple indicators that we're on a course page
+  const indicators = [
+    '.course-content',           // Main course content area
+    '#page-header h1',          // Page header
+    '.page-header-headings h1', // Alternative header
+    '[data-region="blocks-column"]', // Moodle blocks
+    '.section.main',            // Course sections
+    '[role="main"] .course-content', // Main course content with role
+    '.course-header',           // Course header
+    '#region-main .course-content', // Course content in main region
+    '.path-course-view',        // Body class for course view
+    '[data-course-id]'          // Elements with course ID
+  ];
+  
+  // Also check URL patterns
+  const urlIndicators = [
+    /\/course\/view\.php\?id=\d+/,     // Direct course view
+    /\/course\/index\.php/,            // Course index
+    /\/my\//                           // Dashboard that might have courses
+  ];
+  
+  // Check DOM selectors
+  const hasCourseElements = indicators.some(selector => {
+    try {
+      return document.querySelector(selector) !== null;
+    } catch (e) {
+      return false;
+    }
+  });
+  
+  // Check URL patterns
+  const hasValidUrl = urlIndicators.some(pattern => pattern.test(window.location.href));
+  
+  // Also check if we're on a Moodle page at all
+  const isMoodlePage = window.location.href.includes('tbl.umak.edu.ph');
+  
+  console.log('Course page detection:', {
+    hasCourseElements,
+    hasValidUrl,
+    isMoodlePage,
+    currentUrl: window.location.href,
+    foundElements: indicators.filter(sel => {
+      try { return document.querySelector(sel); } catch { return false; }
+    })
+  });
+  
+  return hasCourseElements || (hasValidUrl && isMoodlePage);
+}
+
 
 // === NEW: fetch all courses and scrape ===
 async function scrapeAllCourses() {
@@ -74,13 +205,8 @@ function detectActivityType(node, title) {
 
 // Adapted to accept DOM param (not just document)
 function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
-  // Detect if we are on a course page
-  const onCoursePage = !!qs(rootDoc, '.course-content') || !!qs(rootDoc, '#page-header h1');
-  if (!onCoursePage) {
-    showNavigateToCoursesModal();
-    return []; // stop scraping
-  }
-
+  // Remove the course page detection from here since we check it beforehand
+  
   const candidates = new Set();
 
   // Assignment (skip completed)
@@ -101,6 +227,9 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
     }
   });
 
+  // Rest of your existing scraping logic...
+  // (Keep all the forum handling, candidate processing, etc. the same)
+  
   // Forums: add if they have a due date in DOM, or fetch and parse forum page for due date
   const forumPromises = [];
   qsa(rootDoc, '.modtype_forum').forEach(node => {
@@ -155,25 +284,17 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
     }
   });
 
-  // Wait for forum fetches to resolve before continuing
-  let forumPromise = null;
-  if (forumPromises.length) {
-    forumPromise = Promise.all(forumPromises).then(results => {
-      results.forEach(node => {
-        if (node) candidates.add(node);
-      });
-    });
-  }
-
   // Helper to process candidates after forum fetches
   function processCandidates() {
     const items = [];
     const seen = new Set();
     const promises = [];
+    
     candidates.forEach(node => {
       const title = (qs(node, '.instancename')?.textContent || qs(node, 'a')?.textContent || '').trim();
       const course = (qs(rootDoc, '#page-header h1')?.textContent || qs(rootDoc, '.page-header-headings h1')?.textContent || '').trim();
       const url = qs(node, 'a')?.href || location.href;
+      
       // Improved due date extraction: try multiple patterns, relative formats, and <time> elements
       let dueDate = parseDueDate(node);
       if (!dueDate) {
@@ -193,29 +314,6 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
             break;
           }
         }
-        // Relative weekday pattern: "The due date is on Monday at 6 PM"
-        if (!dueDate) {
-          const relMatch = text.match(/due date is on ([A-Za-z]+) at (\d{1,2}) ?([APMapm]{2})/i);
-          if (relMatch) {
-            const weekday = relMatch[1];
-            let hour = parseInt(relMatch[2], 10);
-            const ampm = relMatch[3];
-            // Compute next occurrence of weekday from today
-            const daysOfWeek = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-            const today = new Date();
-            let dayIdx = daysOfWeek.findIndex(d => d.toLowerCase() === weekday.toLowerCase());
-            if (dayIdx >= 0) {
-              let diff = (dayIdx - today.getDay() + 7) % 7;
-              if (diff === 0) diff = 7; // always next week if today
-              let due = new Date(today);
-              due.setDate(today.getDate() + diff);
-              if (/pm/i.test(ampm) && hour < 12) hour += 12;
-              if (/am/i.test(ampm) && hour === 12) hour = 0;
-              due.setHours(hour, 0, 0, 0);
-              dueDate = due.toISOString().replace('T', ' ').slice(0, 16);
-            }
-          }
-        }
         // Try <time datetime="...">
         const timeEl = qs(node, 'time[datetime]');
         if (timeEl && timeEl.getAttribute('datetime')) {
@@ -223,22 +321,9 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
           if (!isNaN(d.getTime())) dueDate = d.toISOString().slice(0, 10);
         }
       }
+      
       dueDate = dueDate || "No due date";
-      // Improved opening date extraction
-      let opening_date = "No opening date";
-      const openText = (node.textContent || '').replace(/\s+/g, ' ');
-      const openPatterns = [
-        /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
-        /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
-        /Open(?:ing)?\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i
-      ];
-      for (const re of openPatterns) {
-        const m = openText.match(re);
-        if (m) {
-          opening_date = m[1];
-          break;
-        }
-      }
+      
       const activity_type = detectActivityType(node, title);
 
       // Skip duplicates and lessons/resources unless included
@@ -255,11 +340,11 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
         course,
         url,
         due_date: dueDate,
-        opening_date,
         activity_type,
         status,
         node // pass node for normalization if needed
       };
+      
       if (status instanceof Promise) {
         promises.push(
           status.then(resolvedStatus =>
@@ -270,10 +355,21 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
         items.push(normalizeAssignment(assignmentObj));
       }
     });
+    
     if (promises.length) {
       return Promise.all(promises).then(resolved => items.concat(resolved));
     }
     return items;
+  }
+
+  // Wait for forum fetches to resolve before continuing
+  let forumPromise = null;
+  if (forumPromises.length) {
+    forumPromise = Promise.all(forumPromises).then(results => {
+      results.forEach(node => {
+        if (node) candidates.add(node);
+      });
+    });
   }
 
   if (forumPromise) {
@@ -467,22 +563,6 @@ function generateTaskId(title, courseCode, url) {
   return url;
 }
 
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === "SCRAPE_ASSIGNMENTS") {
-    if (location.pathname.includes("/my/courses.php")) {
-      scrapeAllCourses().then(assignments => {
-        sendResponse({ assignments });
-      });
-      return true;
-    } else {
-      Promise.resolve(extractAssignmentsFromDom()).then(assignments => {
-        sendResponse({ assignments });
-      });
-      return true;
-    }
-  }
-  return false;
-});
 
 document.addEventListener('keydown', (e) => {
   // Ctrl+Shift+L to open sidebar and log a test message

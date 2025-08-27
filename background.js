@@ -21,13 +21,29 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       .catch(e => sendResponse({ ok: false, error: String(e) }));
     return true;
   }
-  if (msg?.type === 'TEST_TODOIST_TOKEN') {
+
+  if (msg?.type === "SCRAPE_ASSIGNMENTS") {
+    scrapeAndMaybeSync()
+      .then(() => sendResponse({ ok: true }))
+      .catch(e => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+
+  if (msg?.type === "SCRAPED_RESULTS") {
+    handleScrapedResults(msg.assignments);
+    sendResponse({ ok: true });
+    return true;
+  }
+
+  if (msg?.type === "TEST_TODOIST_TOKEN") {
     testConnection(msg.token)
       .then(ok => sendResponse({ ok }))
       .catch(() => sendResponse({ ok: false }));
     return true;
   }
 });
+
+
 
 async function scrapeAndMaybeSync() {
   let tabs = await chrome.tabs.query({ url: ["https://tbl.umak.edu.ph/*"] });
@@ -49,9 +65,32 @@ async function scrapeAndMaybeSync() {
 
   const merged = await mergeAssignments(scraped);
 
+  // 🔹 NEW: forward the scraped/merged assignments back to content.js → sidebar
+  try {
+    await chrome.tabs.sendMessage(tabId, { 
+      type: "SHOW_SIDEBAR_RESULTS", 
+      assignments: merged 
+    });
+  } catch (e) {
+    console.warn("Could not forward results to sidebar:", e);
+  }
+
   const settings = await getSettings();
   if (settings?.TODOIST_TOKEN) {
     const result = await syncAssignments(merged);
     await chrome.storage.local.set({ lastSyncAt: Date.now(), lastSyncResult: result });
+  }
+}
+
+async function handleScrapedResults(assignments) {
+  const merged = await mergeAssignments(assignments);
+
+  const settings = await getSettings();
+  if (settings?.TODOIST_TOKEN) {
+    const result = await syncAssignments(merged);
+    await chrome.storage.local.set({
+      lastSyncAt: Date.now(),
+      lastSyncResult: result
+    });
   }
 }
