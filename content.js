@@ -44,7 +44,7 @@ function injectScrapeButton() {
 
   const btn = document.createElement("button");
   btn.id = "moodle-scrape-btn";
-  btn.textContent = "⟳ Scrape";
+  btn.textContent = "⟳ Scrape & Sync";
   btn.style.position = "fixed";
   btn.style.bottom = "20px";
   btn.style.right = "20px";
@@ -63,33 +63,40 @@ function injectScrapeButton() {
   btn.onmouseleave = () => (btn.style.background = "#06c");
 
   btn.onclick = async () => {
-    btn.disabled = true;
-    btn.textContent = "⟳ Scraping...";
+    try {
+      if (window.showSidebarLoading) window.showSidebarLoading("🔍 Scraping & syncing...");
+      
+      // Send message to background to run full scrape & sync
+      const res = await chrome.runtime.sendMessage({ type: "SCRAPE_AND_SYNC_NOW" });
+      
+      if (res?.ok) {
+        if (window.logToSidebar) window.logToSidebar("✅ Scrape & sync completed.");
+      } else {
+        if (window.logToSidebar) window.logToSidebar("❌ Scrape & sync failed.", "error");
+      }
 
-    // 🔹 ask background to run scrapeAndMaybeSync
-    const res = await chrome.runtime.sendMessage({ type: "SCRAPE_AND_SYNC_NOW" })
-      .catch(() => ({ ok: false }));
-
-    // 🔹 restore button state
-    btn.textContent = res?.ok ? "✅ Done" : "❌ Failed";
-    setTimeout(() => {
-      btn.disabled = false;
-      btn.textContent = "⟳ Scrape";
-    }, 2000);
+      // Refresh sidebar with latest assignments
+      if (window.clearSidebar && window.showScrapedItems) {
+        const { assignments = [] } = await chrome.storage.local.get("assignments");
+        window.clearSidebar();
+        window.showScrapedItems(assignments);
+      }
+    } catch (err) {
+      if (window.logToSidebar) window.logToSidebar("❌ Scrape & sync error: " + err.message, "error");
+    }
   };
 
   document.body.appendChild(btn);
 }
 
-// Call directly
+// Inject button immediately
 injectScrapeButton();
 
-
-
-// As a fallback, also re-run after page load (in case of Moodle’s JS changes DOM later)
+// Re-inject after full page load (Moodle DOM may update)
 document.addEventListener("readystatechange", () => {
   if (document.readyState === "complete") injectScrapeButton();
 });
+
 
 
 function renderGroupedAssignments(assignments) {
