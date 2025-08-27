@@ -15,8 +15,15 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === "SCRAPE_AND_SYNC_NOW") {
-    scrapeAndMaybeSync()
+  if (msg?.type === "SCRAPE_ONLY") {
+    scrapeAndMaybeSync({ skipSync: true })
+      .then(() => sendResponse({ ok: true }))
+      .catch(e => sendResponse({ ok: false, error: String(e) }));
+    return true;
+  }
+
+  if (msg?.type === "SYNC_ONLY") {
+    scrapeAndMaybeSync({ skipScrape: true })
       .then(() => sendResponse({ ok: true }))
       .catch(e => sendResponse({ ok: false, error: String(e) }));
     return true;
@@ -45,49 +52,53 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 
 
-async function scrapeAndMaybeSync() {
-  let tabs = await chrome.tabs.query({ url: ["https://tbl.umak.edu.ph/*"] });
-  if (!tabs.length) {
-    const actives = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (actives && actives[0]) tabs = [actives[0]];
-  }
-  if (!tabs.length) return;
-
-  const tabId = tabs[0].id;
+async function scrapeAndMaybeSync({ skipScrape = false, skipSync = false } = {}) {
   let scraped = [];
-  try {
-    const msgRes = await chrome.tabs.sendMessage(tabId, { type: "SCRAPE_ASSIGNMENTS" });
-    scraped = msgRes?.assignments || [];
-  } catch (e) {
-    console.error("Messaging to content script failed:", e);
-    return;
+
+  // Only scrape if not skipping
+  if (!skipScrape) {
+    let tabs = await chrome.tabs.query({ url: ["https://tbl.umak.edu.ph/*"] });
+    if (!tabs.length) {
+      const actives = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (actives && actives[0]) tabs = [actives[0]];
+    }
+    if (!tabs.length) return;
+
+    const tabId = tabs[0].id;
+    try {
+      const msgRes = await chrome.tabs.sendMessage(tabId, { type: "SCRAPE_ASSIGNMENTS" });
+      scraped = msgRes?.assignments || [];
+
+      // Show results in sidebar
+      await chrome.tabs.sendMessage(tabId, { 
+        type: "SHOW_SIDEBAR_RESULTS", 
+        assignments: scraped 
+      });
+    } catch (e) {
+      console.error("Messaging to content script failed:", e);
+      return;
+    }
   }
 
-  const { assignments: merged, newOnes } = await mergeAssignments(scraped, { returnDiff: true });
-
-  // Forward results to sidebar with new info
-  await chrome.tabs.sendMessage(tabId, { 
-    type: "SHOW_SIDEBAR_RESULTS", 
-    assignments: merged, 
-    newIds: newOnes.map(a => a.id) 
-  });
-
-  // 🔹 NEW: forward the scraped/merged assignments back to content.js → sidebar
-  try {
-    await chrome.tabs.sendMessage(tabId, { 
-      type: "SHOW_SIDEBAR_RESULTS", 
-      assignments: merged 
-    });
-  } catch (e) {
-    console.warn("Could not forward results to sidebar:", e);
+  // Only sync if not skipping
+  if (!skipSync) {
+    const merged = await mergeAssignments(scraped);
+    const settings = await getSettings();
+    if (settings?.TODOIST_TOKEN) {
+      const result = await syncAssignments(merged);
+      await chrome.storage.local.set({
+        lastSyncAt: Date.now(),
+        lastSyncResult: result
+      });
+    }
   }
 
-  const settings = await getSettings();
-  if (settings?.TODOIST_TOKEN) {
-    const result = await syncAssignments(merged);
-    await chrome.storage.local.set({ lastSyncAt: Date.now(), lastSyncResult: result });
+  // Always merge scraped assignments locally
+  if (!skipScrape || skipSync) {
+    await mergeAssignments(scraped);
   }
 }
+
 
 async function handleScrapedResults(assignments) {
   const merged = await mergeAssignments(assignments);

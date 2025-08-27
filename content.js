@@ -44,11 +44,11 @@ function injectScrapeButton() {
 
   const btn = document.createElement("button");
   btn.id = "moodle-scrape-btn";
-  btn.textContent = "⟳ Scrape & Sync";
+  btn.textContent = "⟳ Scrape";
+  
   btn.style.position = "fixed";
   btn.style.bottom = "20px";
-  btn.style.right = "20px";
-  btn.style.zIndex = "2147483647";
+  btn.style.zIndex = "2147483648";
   btn.style.background = "#06c";
   btn.style.color = "#fff";
   btn.style.border = "none";
@@ -58,36 +58,66 @@ function injectScrapeButton() {
   btn.style.cursor = "pointer";
   btn.style.boxShadow = "0 4px 8px rgba(0,0,0,0.2)";
   btn.style.transition = "background 0.2s";
-
   btn.onmouseenter = () => (btn.style.background = "#004a99");
   btn.onmouseleave = () => (btn.style.background = "#06c");
 
-  btn.onclick = async () => {
-    try {
-      if (window.showSidebarLoading) window.showSidebarLoading("🔍 Scraping & syncing...");
-      
-      // Send message to background to run full scrape & sync
-      const res = await chrome.runtime.sendMessage({ type: "SCRAPE_AND_SYNC_NOW" });
-      
-      if (res?.ok) {
-        if (window.logToSidebar) window.logToSidebar("✅ Scrape & sync completed.");
-      } else {
-        if (window.logToSidebar) window.logToSidebar("❌ Scrape & sync failed.", "error");
-      }
+  let scraped = false;
 
-      // Refresh sidebar with latest assignments
-      if (window.clearSidebar && window.showScrapedItems) {
-        const { assignments = [] } = await chrome.storage.local.get("assignments");
-        window.clearSidebar();
-        window.showScrapedItems(assignments);
+  function updateButtonPosition() {
+    const sidebar = document.getElementById('moodle-todoist-sidebar');
+    if (sidebar) {
+      const sidebarWidth = sidebar.offsetWidth;
+      btn.style.right = `${sidebarWidth + 20}px`;
+    } else {
+      btn.style.right = '20px';
+    }
+  }
+
+  updateButtonPosition();
+  const observer = new MutationObserver(updateButtonPosition);
+  observer.observe(document.body, { childList: true, subtree: true });
+
+  btn.onclick = async () => {
+    btn.disabled = true; // disable button immediately
+    try {
+      if (!scraped) {
+        if (window.showSidebarLoading) window.showSidebarLoading("🔍 Scraping...");
+        const scrapeRes = await chrome.runtime.sendMessage({ type: "SCRAPE_ONLY" });
+
+        if (scrapeRes?.ok) {
+          scraped = true;
+          btn.textContent = "⟳ Sync";
+          if (window.logToSidebar) window.logToSidebar("✅ Scrape completed. Ready to sync.");
+
+          if (window.clearSidebar && window.showScrapedItems) {
+            const { assignments = [] } = await chrome.storage.local.get("assignments");
+            window.clearSidebar();
+            window.showScrapedItems(assignments);
+          }
+        } else {
+          if (window.logToSidebar) window.logToSidebar("❌ Scrape failed.", "error");
+        }
+      } else {
+        if (window.showSidebarLoading) window.showSidebarLoading("🔄 Syncing...");
+        const syncRes = await chrome.runtime.sendMessage({ type: "SYNC_ONLY" });
+
+        if (syncRes?.ok) {
+          if (window.logToSidebar) window.logToSidebar("✅ Sync completed.");
+        } else {
+          if (window.logToSidebar) window.logToSidebar("❌ Sync failed.", "error");
+        }
       }
     } catch (err) {
-      if (window.logToSidebar) window.logToSidebar("❌ Scrape & sync error: " + err.message, "error");
+      if (window.logToSidebar) window.logToSidebar("❌ Error: " + err.message, "error");
+    } finally {
+      btn.disabled = false; // re-enable after operation finishes
     }
   };
 
   document.body.appendChild(btn);
 }
+
+
 
 // Inject button immediately
 injectScrapeButton();
