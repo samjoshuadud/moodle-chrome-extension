@@ -74,7 +74,14 @@ function showScrapedItems(items, newIds = []) {
       <ul style="margin:4px 0 8px 16px; padding:0;">
         ${assignments.map(i => `
           <li style="${newIds.includes(i.task_id) ? 'background: #fffae6; font-weight:bold;' : ''}">
-            ${i.title} <small style="color:#888">(${i.due_date || 'no due'})</small>
+            ${i.title} 
+            <small style="color:#888">(${i.due_date || 'no due'})</small>
+            <span style="margin-left:8px;padding:2px 7px;border-radius:8px;font-size:11px;
+              background:${i.status === 'Completed' ? '#d4f8e8' : '#ffe6e6'};
+              color:${i.status === 'Completed' ? '#1a7f37' : '#b00'};
+              border:1px solid ${i.status === 'Completed' ? '#1a7f37' : '#b00'};">
+              ${i.status || 'Pending'}
+            </span>
           </li>
         `).join('')}
       </ul>

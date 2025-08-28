@@ -505,7 +505,7 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
           /Due\s*:?:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-ZaZ]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
           /Due\s*:?:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-ZaZ]+\s+\d{4})/i,
           /Due\s*:?:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i,
-          /The due date is (?:on )?([A-Za-z]+,? [A-Za-z]+ \d{1,2}, \d{4},? \d{1,2}:\d{2} ?[APMapm]{2})/i,
+          /The due date is (?:on )?([A-Za-z]+,? [A-ZaZ]+ \d{1,2}, \d{4},? \d{1,2}:\d{2} ?[APMapm]{2})/i,
           /The due date is (?:on )?([A-Za-z]+,? [A-ZaZ]+ \d{1,2}, \d{4})/i
         ];
         for (const re of extraPatterns) {
@@ -614,7 +614,7 @@ function showNavigateToCoursesModal() {
 
 // Helper: smart status detection
 function getCompletionStatus(node, activityType = '', url = '') {
-  // Manual completion button
+  // Manual completion button logic (unchanged)
   const btn = node.querySelector('[data-action="toggle-manual-completion"]');
   if (btn) {
     const text = (btn.textContent || '').toLowerCase();
@@ -625,23 +625,29 @@ function getCompletionStatus(node, activityType = '', url = '') {
     if (text.includes('done') || toggle.includes('undo') || title.includes('marked as done') || title.includes('press to undo')) return 'Completed';
   }
 
-  // Assignments can have submission page check in future (async)
-  // Advanced: For assignments, fetch submission status if no manual button
-  if (activityType === 'assign' && url && node.classList.contains('modtype_assign')) {
-    // Return a Promise for async status detection
+  // --- NEW: If no manual button, check assignment/quiz page for submission status ---
+  if ((activityType === 'assign' || activityType === 'quiz') && url) {
     return fetch(url, { credentials: 'include' })
       .then(r => r.text())
       .then(html => {
-        // Parse returned HTML for status keywords
-        const statusKeywords = [
-          { re: /submitted|your submission/i, status: 'Submitted' },
-          { re: /graded|grade/i, status: 'Graded' },
-          { re: /draft/i, status: 'Draft' },
-          { re: /not submitted|no submission/i, status: 'Pending' },
-          { re: /feedback/i, status: 'Feedback' }
-        ];
-        for (const { re, status } of statusKeywords) {
-          if (re.test(html)) return status;
+        // Parse the HTML and look for the "Submission status" row
+        const doc = new DOMParser().parseFromString(html, "text/html");
+        const rows = doc.querySelectorAll('table.generaltable tr');
+        for (const row of rows) {
+          const th = row.querySelector('th');
+          const td = row.querySelector('td');
+          if (th && td && th.textContent.trim().toLowerCase() === 'submission status') {
+            const statusText = td.textContent.trim().toLowerCase();
+            if (statusText.includes('submitted for grading')) {
+              return 'Completed';
+            }
+            // You can add more checks here for other "completed" statuses if needed
+            return 'Pending';
+          }
+        }
+        // Fallback: if "Submission status" row not found, use old keyword logic
+        if (/submitted|done|completed/.test(html.toLowerCase())) {
+          return 'Completed';
         }
         return 'Pending';
       })
