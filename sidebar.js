@@ -36,6 +36,7 @@ function clearSidebar() {
   if (content) content.innerHTML = '';
 }
 
+// CORRECTED FUNCTION
 function logToSidebar(msg, type = 'log') {
   ensureSidebar();
   const content = document.getElementById('sidebar-content');
@@ -46,6 +47,8 @@ function logToSidebar(msg, type = 'log') {
   if (type === 'info') div.style.color = '#06c';
   div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
   content.appendChild(div);
+  
+  // ADDED: This line makes the sidebar scroll to the bottom
   content.scrollTop = content.scrollHeight;
 }
 
@@ -97,9 +100,10 @@ function showSyncResults({added = [], updated = [], skipped = [], errors = []}) 
       <li style="color:#b00">Errors: ${errors.length}</li>
     </ul>`;
   content.appendChild(div);
+  
+  // ADD THIS LINE
   content.scrollTop = content.scrollHeight;
 }
-
 function showAssignmentDebug(assignments, label = 'Assignments Debug') {
   ensureSidebar();
   const content = document.getElementById('sidebar-content');
@@ -110,6 +114,8 @@ function showAssignmentDebug(assignments, label = 'Assignments Debug') {
       ${assignments.map(a => JSON.stringify(a, null, 2)).join('\n\n')}
     </pre>`;
   content.appendChild(div);
+
+  // ADD THIS LINE
   content.scrollTop = content.scrollHeight;
 }
 
@@ -119,6 +125,8 @@ function showTaskIdList(assignments, label = 'Task IDs') {
   const div = document.createElement('div');
   div.innerHTML = `<b>${label}:</b> <span style='font-size:12px;color:#555'>${assignments.map(a => a.task_id).join(', ')}</span>`;
   content.appendChild(div);
+
+  // ADD THIS LINE
   content.scrollTop = content.scrollHeight;
 }
 

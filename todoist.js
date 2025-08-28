@@ -228,18 +228,17 @@ export function formatTaskContent(assignment) {
   return formatted;
 }
 
+// In todoist.js
+
 export function formatTaskDescription(assignment) {
   const parts = [];
   const due = assignment?.due_date || '';
-  if (due) {
-    try {
-      const d = new Date(`${due}T00:00:00Z`);
-      const opts = { year: 'numeric', month: 'long', day: 'numeric' };
-      parts.push(`📅 Deadline: ${d.toLocaleDateString(undefined, opts)}`);
-    } catch {
-      parts.push(`📅 Deadline: ${due}`);
-    }
+
+  // MODIFIED: We no longer convert the date, just display it as is.
+  if (due && due !== 'No due date') {
+    parts.push(`📅 Deadline: ${due}`);
   }
+  
   const course = assignment?.course || '';
   if (course) parts.push(`📚 Course: ${String(course).replace(/\r?\n/g, ' ').trim()}`);
   const source = assignment?.source || '';

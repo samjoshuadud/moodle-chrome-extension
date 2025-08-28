@@ -42,65 +42,42 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 
 
-async function scrapeAndMaybeSync({ skipScrape = false, skipSync = false } = {}) {
-  let scraped = [];
 
-  // Only scrape if not skipping
-  if (!skipScrape) {
-    let tabs = await chrome.tabs.query({ url: ["https://tbl.umak.edu.ph/*"] });
-    if (!tabs.length) {
-      const actives = await chrome.tabs.query({ active: true, currentWindow: true });
-      if (actives && actives[0]) tabs = [actives[0]];
-    }
-    if (!tabs.length) return 0; // MODIFIED: Return 0 if no tab found
+// NEW, CORRECTED FUNCTIONS
 
-    const tabId = tabs[0].id;
-    try {
-      const msgRes = await chrome.tabs.sendMessage(tabId, { type: "SCRAPE_ASSIGNMENTS" });
-      scraped = msgRes?.assignments || [];
-
-      // Show results in sidebar
-      await chrome.tabs.sendMessage(tabId, { 
-        type: "SHOW_SIDEBAR_RESULTS", 
-        assignments: scraped 
-      });
-    } catch (e) {
-      console.error("Messaging to content script failed:", e);
-      return 0; // MODIFIED: Return 0 on failure
-    }
-  }
-
-  // Only sync if not skipping
-  if (!skipSync) {
-    const merged = await mergeAssignments(scraped);
-    const settings = await getSettings();
-    if (settings?.TODOIST_TOKEN) {
-      const result = await syncAssignments(merged);
-      await chrome.storage.local.set({
-        lastSyncAt: Date.now(),
-        lastSyncResult: result
-      });
-    }
-  }
-
-  // Always merge scraped assignments locally
-  if (!skipScrape || skipSync) {
-    await mergeAssignments(scraped);
-  }
-  
-  // MODIFIED: Return the number of assignments found
-  return scraped.length;
+/**
+ * This function now ONLY saves the scraped data to storage. It does NOT sync.
+ * This is called after the "Scrape" step.
+ */
+async function handleScrapedResults(assignments) {
+  await mergeAssignments(assignments);
+  console.log("Scraped data has been processed and saved.");
 }
 
-async function handleScrapedResults(assignments) {
-  const merged = await mergeAssignments(assignments);
+/**
+ * THIS IS THE MISSING FUNCTION.
+ * It reads data from storage and syncs it with Todoist.
+ * This is called only when you click the "Sync" button.
+ */
+// In background.js
 
+async function syncOnly() {
+  const { assignments = [] } = await chrome.storage.local.get("assignments");
+  if (!assignments.length) {
+    console.log("No assignments in storage to sync.");
+    return; // Nothing to do
+  }
+  
   const settings = await getSettings();
   if (settings?.TODOIST_TOKEN) {
-    const result = await syncAssignments(merged);
+    const result = await syncAssignments(assignments);
     await chrome.storage.local.set({
       lastSyncAt: Date.now(),
       lastSyncResult: result
     });
+    console.log("Sync with Todoist completed.");
+  } else {
+    // This will reject the promise and send the error back to content.js
+    throw new Error("Todoist token not configured. Please set it in the extension options.");
   }
 }
