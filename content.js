@@ -34,14 +34,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
 console.log("✅ Moodle content script injected at", location.href);
 
-// === Inject Floating Button ===
 function injectScrapeButton() {
+  // Prevent injecting the button multiple times
   if (document.getElementById("moodle-scrape-btn")) return;
 
   const btn = document.createElement("button");
   btn.id = "moodle-scrape-btn";
   btn.textContent = "⟳ Scrape";
-  
+
+  // --- Button Styling ---
   btn.style.position = "fixed";
   btn.style.bottom = "20px";
   btn.style.zIndex = "2147483648";
@@ -53,14 +54,16 @@ function injectScrapeButton() {
   btn.style.fontSize = "14px";
   btn.style.cursor = "pointer";
   btn.style.boxShadow = "0 4px 8px rgba(0,0,0,0.2)";
-  btn.style.transition = "background 0.2s";
-  btn.style.pointerEvents = 'auto'; // normal
-  btn.style.opacity = '1'; 
+  btn.style.transition = "background 0.2s, opacity 0.2s";
+  btn.style.pointerEvents = 'auto';
+  btn.style.opacity = '1';
   btn.onmouseenter = () => (btn.style.background = "#004a99");
   btn.onmouseleave = () => (btn.style.background = "#06c");
 
-  let scraped = false;
+  // MODIFIED: State variable is now on the window object for global access
+  window.scrapedState = false;
 
+  // --- Helper function to position the button correctly ---
   function updateButtonPosition() {
     const sidebar = document.getElementById('moodle-todoist-sidebar');
     if (sidebar) {
@@ -75,83 +78,113 @@ function injectScrapeButton() {
   const observer = new MutationObserver(updateButtonPosition);
   observer.observe(document.body, { childList: true, subtree: true });
 
-// Run on every page load
-(async function autoScrapeAfterRedirect() {
-  const autoScrape = sessionStorage.getItem('autoScrape');
-  if (autoScrape === 'true' && window.location.href.includes('/my/courses.php')) {
-    sessionStorage.removeItem('autoScrape');
-    console.log("⚡ Auto-scraping after redirect...");
-    await doScrape();
+  // --- Main Logic for Scraping and Syncing ---
+  async function doScrapeAndSync() {
+    btn.disabled = true;
+    btn.style.pointerEvents = 'none';
+    btn.style.opacity = '0.6';
+
+    try {
+      // MODIFIED: Checks the global window.scrapedState
+      if (!window.scrapedState) {
+        // --- SCRAPE LOGIC ---
+        btn.textContent = "⏳ Scraping...";
+        if (window.logToSidebar) window.logToSidebar("🔍 Starting scrape...");
+
+        const assignments = await scrapeAllCourses();
+        if (window.logToSidebar) window.logToSidebar(`Scraped ${assignments.length} total items.`);
+
+        if (window.clearSidebar) window.clearSidebar();
+        if (window.showScrapedItems) window.showScrapedItems(assignments);
+
+        if (assignments.length > 0) {
+          // MODIFIED: Updates the global window.scrapedState
+          window.scrapedState = true;
+          btn.textContent = "⟳ Sync";
+          if (window.logToSidebar) window.logToSidebar("✅ Scrape completed. Ready to sync.");
+        } else {
+          // MODIFIED: Updates the global window.scrapedState
+          window.scrapedState = false;
+          btn.textContent = "⟳ Scrape";
+          if (window.logToSidebar) window.logToSidebar("✅ Scrape completed. No assignments found.");
+        }
+
+        chrome.runtime.sendMessage({ type: "PROCESS_SCRAPED_DATA", assignments });
+        if (window.logToSidebar) window.logToSidebar("💾 Data sent to background for processing.");
+
+      } else {
+        // --- SYNC LOGIC ---
+        btn.textContent = "⏳ Syncing...";
+        if (window.logToSidebar) window.logToSidebar("🔄 Starting sync...");
+
+        const syncRes = await chrome.runtime.sendMessage({ type: "SYNC_ONLY" });
+
+        if (syncRes?.ok) {
+          if (window.logToSidebar) window.logToSidebar("✅ Sync completed.");
+          btn.textContent = "✅ Synced";
+        } else {
+          if (window.logToSidebar) window.logToSidebar("❌ Sync failed.", "error");
+          btn.textContent = "❌ Failed";
+        }
+
+        setTimeout(() => {
+          btn.textContent = "⟳ Sync";
+        }, 2000);
+      }
+    } catch (err) {
+      console.error("Operation failed:", err);
+      if (window.logToSidebar) window.logToSidebar(`❌ Error: ${err.message}`, "error");
+      btn.textContent = "❌ Failed";
+
+      setTimeout(() => {
+        // MODIFIED: Resets the global window.scrapedState on error
+        window.scrapedState = false;
+        btn.textContent = "⟳ Scrape";
+      }, 2000);
+    } finally {
+      btn.disabled = false;
+      btn.style.pointerEvents = 'auto';
+      btn.style.opacity = '1';
+    }
   }
-})();
 
-// Button click
-btn.onclick = async () => {
-  btn.disabled = true;
-  btn.style.pointerEvents = 'none';
-  btn.style.opacity = '0.6';
-  btn.textContent = "⏳ Loading...";
+  // --- Auto-scraping logic for after a redirect ---
+  (async function autoScrapeAfterRedirect() {
+    const autoScrape = sessionStorage.getItem('autoScrape');
+    if (autoScrape === 'true' && window.location.href.includes('/my/courses.php')) {
+      sessionStorage.removeItem('autoScrape');
+      console.log("⚡ Auto-scraping after redirect...");
+      await doScrapeAndSync();
+    }
+  })();
 
-  try {
+  // --- Button Click Handler ---
+  btn.onclick = async () => {
     const currentUrl = window.location.href;
+    const coursesLink = document.querySelector('a[href="https://tbl.umak.edu.ph/my/courses.php"]');
 
     if (currentUrl.includes('/login/index.php')) {
       if (window.logToSidebar) window.logToSidebar("⚠ Please log in first.", "error");
+      sessionStorage.removeItem('autoScrape');
       return;
     }
 
     if (!currentUrl.includes('/my/courses.php')) {
-      const coursesLink = document.querySelector('a[href="https://tbl.umak.edu.ph/my/courses.php"]');
       if (coursesLink) {
         if (window.logToSidebar) window.logToSidebar("🔗 Navigating to My Courses...");
-        sessionStorage.setItem('autoScrape', 'true'); // set flag for next page
-        coursesLink.click(); // redirect
+        sessionStorage.setItem('autoScrape', 'true');
+        coursesLink.click();
+        return;
+      } else {
+        if (window.logToSidebar) window.logToSidebar("🔒 Not logged in", "error");
+        sessionStorage.removeItem('autoScrape');
         return;
       }
-    } else {
-      await doScrape(); // already on courses page
     }
-  } finally {
-    btn.disabled = false;
-    btn.style.pointerEvents = 'auto';
-    btn.style.opacity = '1';
-  }
-};
 
-
-// Extracted scraping logic
-async function doScrape() {
-  if (!scraped) {
-    if (window.logToSidebar) window.logToSidebar("🔍 Starting scrape...");
-    const scrapeRes = await chrome.runtime.sendMessage({ type: "SCRAPE_ONLY" });
-
-    if (scrapeRes?.ok) {
-      scraped = true;
-      btn.textContent = "⟳ Sync";
-      if (window.logToSidebar) window.logToSidebar("✅ Scrape completed. Ready to sync.");
-
-      if (window.clearSidebar && window.showScrapedItems) {
-        const { assignments = [] } = await chrome.storage.local.get("assignments");
-        window.clearSidebar();
-        window.showScrapedItems(assignments);
-      }
-    } else {
-      if (window.logToSidebar) window.logToSidebar("❌ Scrape failed.", "error");
-    }
-  } else {
-    if (window.clearSidebar) window.clearSidebar();
-    if (window.logToSidebar) window.logToSidebar("🔄 Starting sync...");
-    const syncRes = await chrome.runtime.sendMessage({ type: "SYNC_ONLY" });
-
-    if (syncRes?.ok) {
-      if (window.logToSidebar) window.logToSidebar("✅ Sync completed.");
-    } else {
-      if (window.logToSidebar) window.logToSidebar("❌ Sync failed.", "error");
-    }
-  }
-}
-
-
+    // If we’re here, we are on the courses page, so run the main logic
+    await doScrapeAndSync();
+  };
 
   document.body.appendChild(btn);
 }
@@ -238,30 +271,85 @@ function isOnCoursePage() {
   return hasCourseElements || (hasValidUrl && isMoodlePage);
 }
 
+/**
+ * Creates a simple but effective numeric "fingerprint" from a string of text.
+ * We'll use this to check if the Moodle course content has changed.
+ */
+function generateSimpleHash(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i);
+    hash = (hash << 5) - hash + char;
+    hash |= 0; // Convert to 32bit integer
+  }
+  return hash.toString();
+}
 
-// === NEW: fetch all courses and scrape ===
-async function scrapeAllCourses() {
+/**
+ * This function contains your original, full scraping logic.
+ * It fetches every course page and extracts assignments.
+ */
+async function performFullScrape() {
   const courseLinks = Array.from(
     document.querySelectorAll('a[href*="/course/view.php?id="]')
   ).map(a => a.href).filter((v, i, arr) => arr.indexOf(v) === i);
 
   const allAssignments = [];
+  if (window.logToSidebar) window.logToSidebar(`Found ${courseLinks.length} course pages to scan...`);
 
   for (const link of courseLinks) {
     try {
       const html = await fetch(link, { credentials: "include" }).then(r => r.text());
       const dom = new DOMParser().parseFromString(html, "text/html");
       const assignments = await Promise.resolve(extractAssignmentsFromDom(dom));
-      // No console.log, sidebar will show scraped items
       allAssignments.push(...assignments);
     } catch (e) {
-      console.error("❌ Failed to fetch course", link, e);
+      console.error("❌ Failed to fetch or parse course", link, e);
+      if (window.logToSidebar) window.logToSidebar(`❌ Failed to scan course: ${link}`, "error");
     }
   }
 
   return allAssignments;
 }
 
+// === NEW: fetch all courses and scrape ===
+async function scrapeAllCourses() {
+  // 1. Find the main container for all the course listings on the page.
+// NEW LINE - WORKS WITH YOUR HTML
+const contentArea = document.querySelector('[data-region="card-deck"]');
+  // If we can't find that specific area, we can't cache reliably, so just do a full scrape.
+  if (!contentArea) {
+    console.warn("Main course container not found. Performing a full scrape without caching.");
+    return performFullScrape();
+  }
+
+  // 2. Create a "fingerprint" of the current content.
+  const currentHash = generateSimpleHash(contentArea.innerHTML);
+  
+  // 3. Check for a saved fingerprint and saved results from this session.
+  const cachedHash = sessionStorage.getItem('moodleContentHash');
+  const cachedAssignmentsJSON = sessionStorage.getItem('cachedAssignments');
+
+  // 4. CACHE HIT: If the fingerprint matches and we have saved data, return it instantly.
+  if (cachedHash === currentHash && cachedAssignmentsJSON) {
+    console.log("✅ Content is unchanged. Returning cached results.");
+    if (window.logToSidebar) window.logToSidebar("✅ Content unchanged, using cache for speed.");
+    return JSON.parse(cachedAssignmentsJSON);
+  }
+
+  // 5. CACHE MISS: If anything has changed, perform a full, deep scrape.
+  console.log("Content has changed. Performing a full scrape.");
+  if (window.logToSidebar) window.logToSidebar("🔎 Content has changed, performing a deep scan...");
+
+  const allAssignments = await performFullScrape();
+
+  // 6. Update the cache with the new results and the new fingerprint.
+  sessionStorage.setItem('moodleContentHash', currentHash);
+  sessionStorage.setItem('cachedAssignments', JSON.stringify(allAssignments));
+  console.log("Cache updated.");
+  
+  return allAssignments;
+}
 function detectActivityType(node, title) {
   const modtype = node.className.match(/modtype_([a-zA-Z]+)/)?.[1] || 'unknown';
   if (modtype === 'url') {
@@ -642,6 +730,29 @@ document.addEventListener('keydown', (e) => {
   if (e.ctrlKey && e.shiftKey && e.key === 'L') {
     ensureSidebar();
     logToSidebar('Sidebar opened via Ctrl+Shift+L');
+  }
+});
+
+// Add this listener to the end of content.js
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === 'RESET_STATE') {
+    console.log("Resetting content script state...");
+    if (window.logToSidebar) window.logToSidebar("🔄 State and cache have been reset.");
+
+    // 1. Clear the session cache used for fast re-scraping
+    sessionStorage.removeItem('moodleContentHash');
+    sessionStorage.removeItem('cachedAssignments');
+
+    // 2. Find the scrape button and reset its text and state
+    const btn = document.getElementById("moodle-scrape-btn");
+    if (btn) {
+      window.scrapedState = false;
+      btn.textContent = "⟳ Scrape";
+      console.log("UI button has been reset.");
+    }
+    
+    sendResponse({ ok: true });
   }
 });
 

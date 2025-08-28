@@ -63,5 +63,33 @@ testBtn.addEventListener('click', async () => {
   setStatus(res?.ok ? 'Token OK' : 'Token failed');
 });
 
+const clearCacheBtn = document.getElementById('clearCacheBtn');
+
+clearCacheBtn.addEventListener('click', async () => {
+  // 1. Clear the extension's main storage
+  await chrome.storage.local.remove([
+    'assignments',
+    'assignments_archive',
+    'lastMergeAt',
+    'lastSyncAt',
+    'lastSyncResult'
+  ]);
+
+  // 2. Find the Moodle tab and tell it to reset its own state
+  try {
+    const tabs = await chrome.tabs.query({ url: "*://tbl.umak.edu.ph/*" });
+    if (tabs.length > 0) {
+      // Send a message to the content script on that page
+      await chrome.tabs.sendMessage(tabs[0].id, { type: 'RESET_STATE' });
+    }
+  } catch (e) {
+    console.warn("Could not send reset message to Moodle page. It might not be open.", e);
+  }
+  
+  // 3. Update the popup's UI to confirm
+  setStatus('Cache and state cleared');
+  await refreshMeta(); // Refresh the display to show empty values
+});
+
 loadSettings();
 refreshMeta();

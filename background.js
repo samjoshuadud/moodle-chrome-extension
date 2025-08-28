@@ -15,38 +15,28 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg?.type === "SCRAPE_ONLY") {
-    scrapeAndMaybeSync({ skipSync: true })
+  // Handles the assignment data sent from the content script after a scrape
+  if (msg?.type === "PROCESS_SCRAPED_DATA") {
+    handleScrapedResults(msg.assignments)
       .then(() => sendResponse({ ok: true }))
       .catch(e => sendResponse({ ok: false, error: String(e) }));
-    return true;
+    return true; // Required for asynchronous response
   }
 
+  // Handles the command to sync the stored data with Todoist
   if (msg?.type === "SYNC_ONLY") {
-    scrapeAndMaybeSync({ skipScrape: true })
+    syncOnly()
       .then(() => sendResponse({ ok: true }))
       .catch(e => sendResponse({ ok: false, error: String(e) }));
-    return true;
+    return true; // Required for asynchronous response
   }
 
-  if (msg?.type === "SCRAPE_ASSIGNMENTS") {
-    scrapeAndMaybeSync()
-      .then(() => sendResponse({ ok: true }))
-      .catch(e => sendResponse({ ok: false, error: String(e) }));
-    return true;
-  }
-
-  if (msg?.type === "SCRAPED_RESULTS") {
-    handleScrapedResults(msg.assignments);
-    sendResponse({ ok: true });
-    return true;
-  }
-
+  // Handles the settings page test for the API token
   if (msg?.type === "TEST_TODOIST_TOKEN") {
     testConnection(msg.token)
       .then(ok => sendResponse({ ok }))
       .catch(() => sendResponse({ ok: false }));
-    return true;
+    return true; // Required for asynchronous response
   }
 });
 
@@ -62,7 +52,7 @@ async function scrapeAndMaybeSync({ skipScrape = false, skipSync = false } = {})
       const actives = await chrome.tabs.query({ active: true, currentWindow: true });
       if (actives && actives[0]) tabs = [actives[0]];
     }
-    if (!tabs.length) return;
+    if (!tabs.length) return 0; // MODIFIED: Return 0 if no tab found
 
     const tabId = tabs[0].id;
     try {
@@ -76,7 +66,7 @@ async function scrapeAndMaybeSync({ skipScrape = false, skipSync = false } = {})
       });
     } catch (e) {
       console.error("Messaging to content script failed:", e);
-      return;
+      return 0; // MODIFIED: Return 0 on failure
     }
   }
 
@@ -97,8 +87,10 @@ async function scrapeAndMaybeSync({ skipScrape = false, skipSync = false } = {})
   if (!skipScrape || skipSync) {
     await mergeAssignments(scraped);
   }
+  
+  // MODIFIED: Return the number of assignments found
+  return scraped.length;
 }
-
 
 async function handleScrapedResults(assignments) {
   const merged = await mergeAssignments(assignments);
