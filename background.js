@@ -24,12 +24,14 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   // Handles the command to sync the stored data with Todoist
+  // In background.js
   if (msg?.type === "SYNC_ONLY") {
     syncOnly()
-      .then(() => sendResponse({ ok: true }))
+      // MODIFIED: Send the detailed 'result' back
+      .then(result => sendResponse({ ok: true, result }))
       .catch(e => sendResponse({ ok: false, error: String(e) }));
-    return true; // Required for asynchronous response
-  }
+    return true;
+}
 
   // Handles the settings page test for the API token
   if (msg?.type === "TEST_TODOIST_TOKEN") {
@@ -65,7 +67,7 @@ async function syncOnly() {
   const { assignments = [] } = await chrome.storage.local.get("assignments");
   if (!assignments.length) {
     console.log("No assignments in storage to sync.");
-    return; // Nothing to do
+    return;
   }
   
   const settings = await getSettings();
@@ -75,9 +77,16 @@ async function syncOnly() {
       lastSyncAt: Date.now(),
       lastSyncResult: result
     });
-    console.log("Sync with Todoist completed.");
+    console.log("Sync with Todoist completed.", result);
+
+    // --- NEW: Send sync results to the content script for sidebar display ---
+    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+    if (tab && tab.id) {
+      chrome.tabs.sendMessage(tab.id, { type: "SHOW_SYNC_RESULTS", result });
+    }
+
+    return result;
   } else {
-    // This will reject the promise and send the error back to content.js
-    throw new Error("Todoist token not configured. Please set it in the extension options.");
+    throw new Error("Todoist token not configured.");
   }
 }

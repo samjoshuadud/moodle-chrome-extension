@@ -26,8 +26,11 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (window.showScrapedItems) {
       window.showScrapedItems(msg.assignments || [], msg.newIds || []);
     }
-}
+  }
 
+  if (msg?.type === "SHOW_SYNC_RESULTS") {
+    if (window.showSyncResults) window.showSyncResults(msg.result);
+  }
 });
 
 
@@ -499,11 +502,11 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
         const text = (node.textContent || '').replace(/\s+/g, ' ');
         // Absolute date patterns
         const extraPatterns = [
-          /Due\s*:?:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
-          /Due\s*:?:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+          /Due\s*:?:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-ZaZ]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
+          /Due\s*:?:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-ZaZ]+\s+\d{4})/i,
           /Due\s*:?:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i,
           /The due date is (?:on )?([A-Za-z]+,? [A-Za-z]+ \d{1,2}, \d{4},? \d{1,2}:\d{2} ?[APMapm]{2})/i,
-          /The due date is (?:on )?([A-Za-z]+,? [A-Za-z]+ \d{1,2}, \d{4})/i
+          /The due date is (?:on )?([A-Za-z]+,? [A-ZaZ]+ \d{1,2}, \d{4})/i
         ];
         for (const re of extraPatterns) {
           const m = text.match(re);
@@ -685,13 +688,13 @@ function normalizeAssignment(a) {
     const openText = (a.node.textContent || '').replace(/\s+/g, ' ');
     const openPatterns = [
       /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
-      /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+      /Open(?:ing)?\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-ZaZ]+\s+\d{4})/i,
       /Open(?:ing)?\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i,
       /Available from\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
-      /Available from\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+      /Available from\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-ZaZ]+\s+\d{4})/i,
       /Available from\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i,
       /Opens\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4},?\s*\d{1,2}:\d{2}\s*[APMapm]{2})/i,
-      /Opens\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-Za-z]+\s+\d{4})/i,
+      /Opens\s*:?\s*([A-Za-z]+,?\s+\d{1,2}\s+[A-ZaZ]+\s+\d{4})/i,
       /Opens\s*:?\s*([\d]{4}-[\d]{2}-[\d]{2})/i
     ];
     for (const re of openPatterns) {

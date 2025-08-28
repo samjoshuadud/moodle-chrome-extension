@@ -295,6 +295,7 @@ export async function hasMeaningfulChanges(assignment, taskId, token) {
   return false;
 }
 
+
 export async function createTask(assignment, projectId, token) {
   const body = {
     content: formatTaskContent(assignment),
@@ -303,7 +304,7 @@ export async function createTask(assignment, projectId, token) {
     priority: 2
   };
   const due = assignment?.due_date;
-  if (due) {
+  if (due && due !== 'No due date') {
     const reminder = calculateReminderDate(assignment);
     body.due_date = reminder || due;
   }
@@ -312,7 +313,13 @@ export async function createTask(assignment, projectId, token) {
     headers: headers(token),
     body: JSON.stringify(body)
   });
-  return res.ok;
+  
+  // MODIFIED: Check the response and throw a detailed error on failure
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`API Error (${res.status}): ${errorText}`);
+  }
+  return true;
 }
 
 export async function updateTask(assignment, taskId, token) {
@@ -322,7 +329,7 @@ export async function updateTask(assignment, taskId, token) {
     priority: 2
   };
   const due = assignment?.due_date;
-  if (due) {
+  if (due && due !== 'No due date') {
     const reminder = calculateReminderDate(assignment);
     body.due_date = reminder || due;
   }
@@ -331,7 +338,13 @@ export async function updateTask(assignment, taskId, token) {
     headers: headers(token),
     body: JSON.stringify(body)
   });
-  return res.ok;
+
+  // MODIFIED: Check the response and throw a detailed error on failure
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`API Error (${res.status}): ${errorText}`);
+  }
+  return true;
 }
 
 export async function deleteTask(taskId, token) {
@@ -339,30 +352,61 @@ export async function deleteTask(taskId, token) {
   return res.status === 204;
 }
 
+// In todoist.js
+
 export async function syncAssignments(assignments) {
   const settings = await getSettings();
   const token = settings.TODOIST_TOKEN;
-  if (!token) return { total_processed: 0, new_created: 0, existing_updated: 0 };
+  if (!token) {
+    // This case is already handled, but good to keep.
+    return { added: [], updated: [], skipped: [], errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }] };
+  }
 
   const valid = (assignments || []).filter(a => a && a.title && a.status !== 'Completed');
   const projectId = await getOrCreateProject(settings.projectName || 'School Assignments', token);
-  if (!projectId) return { total_processed: 0, new_created: 0, existing_updated: 0 };
+  if (!projectId) {
+    return { added: [], updated: [], skipped: [], errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }] };
+  }
 
   const groups = await preventDuplicateSync(valid, projectId, token);
-  let created = 0, updated = 0;
+  const results = { added: [], updated: [], skipped: [], errors: [] };
 
+  // --- Process existing tasks ---
   for (const a of groups.existing) {
-    const taskId = a._todoist_task_id;
-    const changes = await hasMeaningfulChanges(a, taskId, token);
-    if (changes) {
-      if (await updateTask(a, taskId, token)) updated++;
+    try {
+      const taskId = a._todoist_task_id;
+      const changes = await hasMeaningfulChanges(a, taskId, token);
+      if (changes) {
+        const success = await updateTask(a, taskId, token);
+        if (success) {
+          results.updated.push(a.title);
+        } else {
+          // Add a detailed error if the update fails
+          results.errors.push({ title: a.title, reason: 'API update failed.' });
+        }
+      } else {
+        results.skipped.push(a.title);
+      }
+    } catch (e) {
+      results.errors.push({ title: a.title, reason: e.message });
     }
   }
+
+  // --- Process new tasks ---
   for (const a of groups.new) {
-    if (await createTask(a, projectId, token)) created++;
+    try {
+      const success = await createTask(a, projectId, token);
+      if (success) {
+        results.added.push(a.title);
+      } else {
+        // Add a detailed error if creation fails
+        results.errors.push({ title: a.title, reason: 'API creation failed.' });
+      }
+    } catch (e) {
+      results.errors.push({ title: a.title, reason: e.message });
+    }
   }
 
-  return { total_processed: created + updated, new_created: created, existing_updated: updated };
+  return results;
 }
-
 

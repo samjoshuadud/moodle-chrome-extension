@@ -87,21 +87,40 @@ function showScrapedItems(items, newIds = []) {
 }
 
 
-function showSyncResults({added = [], updated = [], skipped = [], errors = []}) {
+// In sidebar.js
+
+function showSyncResults({ added = [], updated = [], skipped = [], errors = [] }) {
   ensureSidebar();
   const content = document.getElementById('sidebar-content');
   const div = document.createElement('div');
-  div.innerHTML = `
+
+  // --- Create the summary list ---
+  let summaryHTML = `
     <b>Sync Results:</b>
-    <ul style="margin:4px 0 8px 16px;">
+    <ul style="margin:4px 0 8px 16px; padding-left: 16px;">
       <li style="color:#080">Added: ${added.length}</li>
       <li style="color:#06c">Updated: ${updated.length}</li>
-      <li style="color:#888">Skipped: ${skipped.length}</li>
+      <li style="color:#888">Skipped (No Changes): ${skipped.length}</li>
       <li style="color:#b00">Errors: ${errors.length}</li>
     </ul>`;
+
+  // --- NEW: If there are errors, display them in detail ---
+  if (errors.length > 0) {
+    summaryHTML += `
+      <b style="color:#b00;">Error Details:</b>
+      <ul style="margin:4px 0 8px 16px; padding-left: 16px; font-size: 12px;">
+        ${errors.map(err => `
+          <li>
+            <b>${err.title}</b>: 
+            <span style="color:#555;">${err.reason || 'Unknown API error'}</span>
+          </li>
+        `).join('')}
+      </ul>
+    `;
+  }
+
+  div.innerHTML = summaryHTML;
   content.appendChild(div);
-  
-  // ADD THIS LINE
   content.scrollTop = content.scrollHeight;
 }
 function showAssignmentDebug(assignments, label = 'Assignments Debug') {
