@@ -1,9 +1,6 @@
-// --- Logging helper ---
 function log(...args) {
   console.log('[Todoist]', ...args);
 }
-
-// Todoist REST v2 client and sync helpers
 
 import { getSettings } from './storage.js';
 

@@ -1,4 +1,3 @@
-// Basic background orchestration and messaging
 import { initDefaults, getSettings, mergeAssignments } from './storage.js';
 import { syncAssignments, testConnection } from './todoist.js';
 
@@ -15,37 +14,28 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  // Handles the assignment data sent from the content script after a scrape
   if (msg?.type === "PROCESS_SCRAPED_DATA") {
     handleScrapedResults(msg.assignments)
       .then(() => sendResponse({ ok: true }))
       .catch(e => sendResponse({ ok: false, error: String(e) }));
-    return true; // Required for asynchronous response
+    return true; 
   }
 
-  // Handles the command to sync the stored data with Todoist
-  // In background.js
+
   if (msg?.type === "SYNC_ONLY") {
     syncOnly()
-      // MODIFIED: Send the detailed 'result' back
       .then(result => sendResponse({ ok: true, result }))
       .catch(e => sendResponse({ ok: false, error: String(e) }));
     return true;
 }
 
-  // Handles the settings page test for the API token
   if (msg?.type === "TEST_TODOIST_TOKEN") {
     testConnection(msg.token)
       .then(ok => sendResponse({ ok }))
       .catch(() => sendResponse({ ok: false }));
-    return true; // Required for asynchronous response
+    return true;
   }
 });
-
-
-
-
-// NEW, CORRECTED FUNCTIONS
 
 /**
  * This function now ONLY saves the scraped data to storage. It does NOT sync.
@@ -57,11 +47,9 @@ async function handleScrapedResults(assignments) {
 }
 
 /**
- * THIS IS THE MISSING FUNCTION.
  * It reads data from storage and syncs it with Todoist.
  * This is called only when you click the "Sync" button.
  */
-// In background.js
 
 async function syncOnly() {
   const { assignments = [] } = await chrome.storage.local.get("assignments");
@@ -79,7 +67,7 @@ async function syncOnly() {
     });
     console.log("Sync with Todoist completed.", result);
 
-    // --- NEW: Send sync results to the content script for sidebar display ---
+    // --- Send sync results to the content script for sidebar display ---
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab && tab.id) {
       chrome.tabs.sendMessage(tab.id, { type: "SHOW_SYNC_RESULTS", result });

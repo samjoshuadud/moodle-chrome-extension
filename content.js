@@ -1,10 +1,10 @@
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg?.type === "SCRAPE_ASSIGNMENTS") {
 
-    // Run your scraping logic
+    // Run scraping logic
     setTimeout(async () => {
       try {
-        const assignments = await extractAssignmentsFromDom(); // <-- your scraper
+        const assignments = await extractAssignmentsFromDom(); 
         console.log("Scraped assignments:", assignments);
 
         if (window.clearSidebar) window.clearSidebar();
@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       }
     }, 200);
 
-    return true; // async response
+    return true; 
   }
 
   if (msg?.type === "SHOW_SIDEBAR_RESULTS") {
@@ -45,7 +45,7 @@ function injectScrapeButton() {
   btn.id = "moodle-scrape-btn";
   btn.textContent = "⟳ Scrape";
 
-  // --- Button Styling ---
+  
   btn.style.position = "fixed";
   btn.style.bottom = "20px";
   btn.style.zIndex = "2147483648";
@@ -63,10 +63,8 @@ function injectScrapeButton() {
   btn.onmouseenter = () => (btn.style.background = "#004a99");
   btn.onmouseleave = () => (btn.style.background = "#06c");
 
-  // MODIFIED: State variable is now on the window object for global access
   window.scrapedState = false;
 
-  // --- Helper function to position the button correctly ---
   function updateButtonPosition() {
     const sidebar = document.getElementById('moodle-todoist-sidebar');
     if (sidebar) {
@@ -81,14 +79,13 @@ function injectScrapeButton() {
   const observer = new MutationObserver(updateButtonPosition);
   observer.observe(document.body, { childList: true, subtree: true });
 
-  // --- Main Logic for Scraping and Syncing ---
+  // Main Logic for Scraping and Syncing 
   async function doScrapeAndSync() {
     btn.disabled = true;
     btn.style.pointerEvents = 'none';
     btn.style.opacity = '0.6';
 
     try {
-      // MODIFIED: Checks the global window.scrapedState
       if (!window.scrapedState) {
         // --- SCRAPE LOGIC ---
         btn.textContent = "⏳ Scraping...";
@@ -101,12 +98,12 @@ function injectScrapeButton() {
         if (window.showScrapedItems) window.showScrapedItems(assignments);
 
         if (assignments.length > 0) {
-          // MODIFIED: Updates the global window.scrapedState
+          // Updates the global window.scrapedState
           window.scrapedState = true;
           btn.textContent = "⟳ Sync";
           if (window.logToSidebar) window.logToSidebar("✅ Scrape completed. Ready to sync.");
         } else {
-          // MODIFIED: Updates the global window.scrapedState
+          // Updates the global window.scrapedState
           window.scrapedState = false;
           btn.textContent = "⟳ Scrape";
           if (window.logToSidebar) window.logToSidebar("✅ Scrape completed. No assignments found.");
@@ -140,7 +137,7 @@ function injectScrapeButton() {
       btn.textContent = "❌ Failed";
 
       setTimeout(() => {
-        // MODIFIED: Resets the global window.scrapedState on error
+        // Resets the global window.scrapedState on error
         window.scrapedState = false;
         btn.textContent = "⟳ Scrape";
       }, 2000);
@@ -151,8 +148,6 @@ function injectScrapeButton() {
     }
   }
 
-// In content.js, inside the injectScrapeButton function
-
 (async function autoScrapeAfterRedirect() {
   const autoScrape = sessionStorage.getItem('autoScrape');
   if (autoScrape === 'true' && window.location.href.includes('/my/courses.php')) {
@@ -162,12 +157,12 @@ function injectScrapeButton() {
     
     try {
       // 1. WAIT for the main course container to exist on the page.
-      //    Use the selector that works for your Moodle page.
+      //    Use the selector that works for tbl.
       await waitForElement('[data-region="card-deck"]');
       
       if (window.logToSidebar) window.logToSidebar("✅ Course content found, starting auto-scrape.");
       
-      // 2. NOW that the content is loaded, run the scrape.
+      // 2. whem the content is loaded, run the scrape.
       await doScrapeAndSync();
       
     } catch (error) {
@@ -188,7 +183,7 @@ function injectScrapeButton() {
       return;
     }
 
-    // If we are NOT on the courses page...
+    // If NOT on the courses page...
     if (!currentUrl.includes('/my/courses.php')) {
       if (coursesLink) {
         if (window.logToSidebar) window.logToSidebar("🔗 Navigating to My Courses...");
@@ -212,12 +207,9 @@ function injectScrapeButton() {
   document.body.appendChild(btn);
 }
 
-
-
-// Inject button immediately
 injectScrapeButton();
 
-// Re-inject after full page load (Moodle DOM may update)
+// Re-inject after full page load 
 document.addEventListener("readystatechange", () => {
   if (document.readyState === "complete") injectScrapeButton();
 });
@@ -231,7 +223,7 @@ function waitForElement(selector, timeout = 5000) {
         clearInterval(interval);
         resolve(element);
       }
-    }, 100); // Check every 100ms
+    }, 100); 
 
     setTimeout(() => {
       clearInterval(interval);
@@ -264,23 +256,23 @@ function renderGroupedAssignments(assignments) {
 function isOnCoursePage() {
   // Check multiple indicators that we're on a course page
   const indicators = [
-    '.course-content',           // Main course content area
-    '#page-header h1',          // Page header
-    '.page-header-headings h1', // Alternative header
-    '[data-region="blocks-column"]', // Moodle blocks
-    '.section.main',            // Course sections
-    '[role="main"] .course-content', // Main course content with role
-    '.course-header',           // Course header
-    '#region-main .course-content', // Course content in main region
-    '.path-course-view',        // Body class for course view
-    '[data-course-id]'          // Elements with course ID
+    '.course-content',           
+    '#page-header h1',          
+    '.page-header-headings h1', 
+    '[data-region="blocks-column"]', 
+    '.section.main',            
+    '[role="main"] .course-content', 
+    '.course-header',           
+    '#region-main .course-content', 
+    '.path-course-view',        
+    '[data-course-id]'          
   ];
   
   // Also check URL patterns
   const urlIndicators = [
-    /\/course\/view\.php\?id=\d+/,     // Direct course view
-    /\/course\/index\.php/,            // Course index
-    /\/my\//                           // Dashboard that might have courses
+    /\/course\/view\.php\?id=\d+/,     
+    /\/course\/index\.php/,
+    /\/my\//                           
   ];
   
   // Check DOM selectors
@@ -311,10 +303,6 @@ function isOnCoursePage() {
   return hasCourseElements || (hasValidUrl && isMoodlePage);
 }
 
-/**
- * Creates a simple but effective numeric "fingerprint" from a string of text.
- * We'll use this to check if the Moodle course content has changed.
- */
 function generateSimpleHash(str) {
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
@@ -325,10 +313,6 @@ function generateSimpleHash(str) {
   return hash.toString();
 }
 
-/**
- * This function contains your original, full scraping logic.
- * It fetches every course page and extracts assignments.
- */
 async function performFullScrape() {
   const courseLinks = Array.from(
     document.querySelectorAll('a[href*="/course/view.php?id="]')
@@ -352,10 +336,9 @@ async function performFullScrape() {
   return allAssignments;
 }
 
-// === NEW: fetch all courses and scrape ===
+// fetch all courses and scrape 
 async function scrapeAllCourses() {
   // 1. Find the main container for all the course listings on the page.
-// NEW LINE - WORKS WITH YOUR HTML
 const contentArea = document.querySelector('[data-region="card-deck"]');
   // If we can't find that specific area, we can't cache reliably, so just do a full scrape.
   if (!contentArea) {
@@ -370,14 +353,14 @@ const contentArea = document.querySelector('[data-region="card-deck"]');
   const cachedHash = sessionStorage.getItem('moodleContentHash');
   const cachedAssignmentsJSON = sessionStorage.getItem('cachedAssignments');
 
-  // 4. CACHE HIT: If the fingerprint matches and we have saved data, return it instantly.
+  // 4. If the fingerprint matches and we have saved data, return it instantly.
   if (cachedHash === currentHash && cachedAssignmentsJSON) {
     console.log("✅ Content is unchanged. Returning cached results.");
     if (window.logToSidebar) window.logToSidebar("✅ Content unchanged, using cache for speed.");
     return JSON.parse(cachedAssignmentsJSON);
   }
 
-  // 5. CACHE MISS: If anything has changed, perform a full, deep scrape.
+  // 5. If anything has changed, perform a full, deep scrape.
   console.log("Content has changed. Performing a full scrape.");
   if (window.logToSidebar) window.logToSidebar("🔎 Content has changed, performing a deep scan...");
 
@@ -428,9 +411,6 @@ function extractAssignmentsFromDom(rootDoc = document, includeLessons = false) {
     }
   });
 
-  // Rest of your existing scraping logic...
-  // (Keep all the forum handling, candidate processing, etc. the same)
-  
   // Forums: add if they have a due date in DOM, or fetch and parse forum page for due date
   const forumPromises = [];
   qsa(rootDoc, '.modtype_forum').forEach(node => {
@@ -612,7 +592,7 @@ function showNavigateToCoursesModal() {
 }
 
 
-// Helper: smart status detection
+// smart status detection
 function getCompletionStatus(node, activityType = '', url = '') {
   // Manual completion button logic (unchanged)
   const btn = node.querySelector('[data-action="toggle-manual-completion"]');
@@ -625,7 +605,7 @@ function getCompletionStatus(node, activityType = '', url = '') {
     if (text.includes('done') || toggle.includes('undo') || title.includes('marked as done') || title.includes('press to undo')) return 'Completed';
   }
 
-  // --- NEW: If no manual button, check assignment/quiz page for submission status ---
+  // If no manual button, check assignment/quiz page for submission status 
   if ((activityType === 'assign' || activityType === 'quiz') && url) {
     return fetch(url, { credentials: 'include' })
       .then(r => r.text())

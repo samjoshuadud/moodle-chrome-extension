@@ -1,4 +1,3 @@
-// === SIDEBAR FUNCTIONS ===
 const SIDEBAR_ID = 'moodle-todoist-sidebar';
 
 function ensureSidebar() {
@@ -48,7 +47,7 @@ function logToSidebar(msg, type = 'log') {
   div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
   content.appendChild(div);
   
-  // ADDED: This line makes the sidebar scroll to the bottom
+  // This line makes the sidebar scroll to the bottom
   content.scrollTop = content.scrollHeight;
 }
 
@@ -92,9 +91,6 @@ function showScrapedItems(items, newIds = []) {
   content.appendChild(div);
   content.scrollTop = content.scrollHeight;
 }
-
-
-// In sidebar.js
 
 function showSyncResults({ added = [], updated = [], skipped = [], errors = [], filtered = [] }) {
   ensureSidebar();
