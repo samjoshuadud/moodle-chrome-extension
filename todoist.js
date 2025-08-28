@@ -228,28 +228,34 @@ export function formatTaskContent(assignment) {
   return formatted;
 }
 
-// In todoist.js
-
 export function formatTaskDescription(assignment) {
   const parts = [];
   const due = assignment?.due_date || '';
 
-  // MODIFIED: We no longer convert the date, just display it as is.
   if (due && due !== 'No due date') {
     parts.push(`📅 Deadline: ${due}`);
   }
   
+  const url = assignment?.origin_url || '';
+  if (url) {
+    parts.push(`🔗 Link: ${url}`);
+  }
+  
   const course = assignment?.course || '';
   if (course) parts.push(`📚 Course: ${String(course).replace(/\r?\n/g, ' ').trim()}`);
+  
   const source = assignment?.source || '';
   if (source) parts.push(`📧 Source: ${source}`);
+  
   const taskId = assignment?.task_id || '';
   if (taskId) parts.push(`🔗 Task ID: ${taskId}`);
+  
   if (assignment?.course_code) parts.push(`📚 Course: ${assignment.course_code}`);
+  
   if (assignment?.activity_type) parts.push(`🔧 Type: ${assignment.activity_type}`);
+  
   return parts.join('\n');
 }
-
 async function getTasks(projectId, token) {
   const res = await fetch(`${TODOIST_BASE}/tasks?project_id=${encodeURIComponent(projectId)}`, { headers: headers(token) });
   if (!res.ok) return [];
@@ -303,18 +309,20 @@ export async function createTask(assignment, projectId, token) {
     project_id: projectId,
     priority: 2
   };
-  const due = assignment?.due_date;
-  if (due && due !== 'No due date') {
+  
+  const dueDate = assignment?.due_date;
+
+  if (dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
     const reminder = calculateReminderDate(assignment);
-    body.due_date = reminder || due;
+    body.due_date = reminder || dueDate;
   }
+
   const res = await fetch(`${TODOIST_BASE}/tasks`, {
     method: 'POST',
     headers: headers(token),
     body: JSON.stringify(body)
   });
   
-  // MODIFIED: Check the response and throw a detailed error on failure
   if (!res.ok) {
     const errorText = await res.text();
     throw new Error(`API Error (${res.status}): ${errorText}`);
@@ -322,24 +330,27 @@ export async function createTask(assignment, projectId, token) {
   return true;
 }
 
+
 export async function updateTask(assignment, taskId, token) {
   const body = {
     content: formatTaskContent(assignment),
     description: formatTaskDescription(assignment),
     priority: 2
   };
-  const due = assignment?.due_date;
-  if (due && due !== 'No due date') {
+
+  const dueDate = assignment?.due_date;
+
+  if (dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
     const reminder = calculateReminderDate(assignment);
-    body.due_date = reminder || due;
+    body.due_date = reminder || dueDate;
   }
+
   const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, {
     method: 'POST',
     headers: headers(token),
     body: JSON.stringify(body)
   });
 
-  // MODIFIED: Check the response and throw a detailed error on failure
   if (!res.ok) {
     const errorText = await res.text();
     throw new Error(`API Error (${res.status}): ${errorText}`);
@@ -352,24 +363,23 @@ export async function deleteTask(taskId, token) {
   return res.status === 204;
 }
 
-// In todoist.js
-
 export async function syncAssignments(assignments) {
   const settings = await getSettings();
   const token = settings.TODOIST_TOKEN;
   if (!token) {
-    // This case is already handled, but good to keep.
-    return { added: [], updated: [], skipped: [], errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }] };
+    return { added: [], updated: [], skipped: [], errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }], filtered: [] };
   }
 
+  // NEW: Track filtered assignments
+  const filtered = (assignments || []).filter(a => a && a.status === 'Completed');
   const valid = (assignments || []).filter(a => a && a.title && a.status !== 'Completed');
   const projectId = await getOrCreateProject(settings.projectName || 'School Assignments', token);
   if (!projectId) {
-    return { added: [], updated: [], skipped: [], errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }] };
+    return { added: [], updated: [], skipped: [], errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }], filtered };
   }
 
   const groups = await preventDuplicateSync(valid, projectId, token);
-  const results = { added: [], updated: [], skipped: [], errors: [] };
+  const results = { added: [], updated: [], skipped: [], errors: [], filtered: filtered.map(a => a.title) };
 
   // --- Process existing tasks ---
   for (const a of groups.existing) {

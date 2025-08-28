@@ -89,12 +89,11 @@ function showScrapedItems(items, newIds = []) {
 
 // In sidebar.js
 
-function showSyncResults({ added = [], updated = [], skipped = [], errors = [] }) {
+function showSyncResults({ added = [], updated = [], skipped = [], errors = [], filtered = [] }) {
   ensureSidebar();
   const content = document.getElementById('sidebar-content');
   const div = document.createElement('div');
 
-  // --- Create the summary list ---
   let summaryHTML = `
     <b>Sync Results:</b>
     <ul style="margin:4px 0 8px 16px; padding-left: 16px;">
@@ -102,9 +101,9 @@ function showSyncResults({ added = [], updated = [], skipped = [], errors = [] }
       <li style="color:#06c">Updated: ${updated.length}</li>
       <li style="color:#888">Skipped (No Changes): ${skipped.length}</li>
       <li style="color:#b00">Errors: ${errors.length}</li>
+      <li style="color:#aaa">Filtered (Completed): ${filtered.length}</li>
     </ul>`;
 
-  // --- NEW: If there are errors, display them in detail ---
   if (errors.length > 0) {
     summaryHTML += `
       <b style="color:#b00;">Error Details:</b>
