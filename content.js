@@ -75,48 +75,83 @@ function injectScrapeButton() {
   const observer = new MutationObserver(updateButtonPosition);
   observer.observe(document.body, { childList: true, subtree: true });
 
-  btn.onclick = async () => {
-    btn.disabled = true; // disable button immediately
-    btn.style.pointerEvents = 'none'; // disable pointer events
-    btn.style.opacity = '0.6'; // reduce opacity
-    btn.textContent = "⏳ Loading...";
-    try {
-      if (!scraped) {
-        if (window.logToSidebar) window.logToSidebar("🔍 Starting scrape...");
-        const scrapeRes = await chrome.runtime.sendMessage({ type: "SCRAPE_ONLY" });
+// Run on every page load
+(async function autoScrapeAfterRedirect() {
+  const autoScrape = sessionStorage.getItem('autoScrape');
+  if (autoScrape === 'true' && window.location.href.includes('/my/courses.php')) {
+    sessionStorage.removeItem('autoScrape');
+    console.log("⚡ Auto-scraping after redirect...");
+    await doScrape();
+  }
+})();
 
-        if (scrapeRes?.ok) {
-          scraped = true;
-          btn.textContent = "⟳ Sync";
-          if (window.logToSidebar) window.logToSidebar("✅ Scrape completed. Ready to sync.");
+// Button click
+btn.onclick = async () => {
+  btn.disabled = true;
+  btn.style.pointerEvents = 'none';
+  btn.style.opacity = '0.6';
+  btn.textContent = "⏳ Loading...";
 
-          if (window.clearSidebar && window.showScrapedItems) {
-            const { assignments = [] } = await chrome.storage.local.get("assignments");
-            window.clearSidebar();
-            window.showScrapedItems(assignments);
-          }
-        } else {
-          if (window.logToSidebar) window.logToSidebar("❌ Scrape failed.", "error");
-        }
-      } else {
-        if (window.clearSidebar) window.clearSidebar();
-        if (window.logToSidebar) window.logToSidebar("🔄 Starting sync...");
-        const syncRes = await chrome.runtime.sendMessage({ type: "SYNC_ONLY" });
+  try {
+    const currentUrl = window.location.href;
 
-        if (syncRes?.ok) {
-          if (window.logToSidebar) window.logToSidebar("✅ Sync completed.");
-        } else {
-          if (window.logToSidebar) window.logToSidebar("❌ Sync failed.", "error");
-        }
-      }
-    } catch (err) {
-      if (window.logToSidebar) window.logToSidebar("❌ Error: " + err.message, "error");
-    } finally {
-      btn.disabled = false; // re-enable after operation finishes
-      btn.style.pointerEvents = 'auto'; // re-enable pointer events
-      btn.style.opacity = '1'; // restore opacity
+    if (currentUrl.includes('/login/index.php')) {
+      if (window.logToSidebar) window.logToSidebar("⚠ Please log in first.", "error");
+      return;
     }
-  };
+
+    if (!currentUrl.includes('/my/courses.php')) {
+      const coursesLink = document.querySelector('a[href="https://tbl.umak.edu.ph/my/courses.php"]');
+      if (coursesLink) {
+        if (window.logToSidebar) window.logToSidebar("🔗 Navigating to My Courses...");
+        sessionStorage.setItem('autoScrape', 'true'); // set flag for next page
+        coursesLink.click(); // redirect
+        return;
+      }
+    } else {
+      await doScrape(); // already on courses page
+    }
+  } finally {
+    btn.disabled = false;
+    btn.style.pointerEvents = 'auto';
+    btn.style.opacity = '1';
+  }
+};
+
+
+// Extracted scraping logic
+async function doScrape() {
+  if (!scraped) {
+    if (window.logToSidebar) window.logToSidebar("🔍 Starting scrape...");
+    const scrapeRes = await chrome.runtime.sendMessage({ type: "SCRAPE_ONLY" });
+
+    if (scrapeRes?.ok) {
+      scraped = true;
+      btn.textContent = "⟳ Sync";
+      if (window.logToSidebar) window.logToSidebar("✅ Scrape completed. Ready to sync.");
+
+      if (window.clearSidebar && window.showScrapedItems) {
+        const { assignments = [] } = await chrome.storage.local.get("assignments");
+        window.clearSidebar();
+        window.showScrapedItems(assignments);
+      }
+    } else {
+      if (window.logToSidebar) window.logToSidebar("❌ Scrape failed.", "error");
+    }
+  } else {
+    if (window.clearSidebar) window.clearSidebar();
+    if (window.logToSidebar) window.logToSidebar("🔄 Starting sync...");
+    const syncRes = await chrome.runtime.sendMessage({ type: "SYNC_ONLY" });
+
+    if (syncRes?.ok) {
+      if (window.logToSidebar) window.logToSidebar("✅ Sync completed.");
+    } else {
+      if (window.logToSidebar) window.logToSidebar("❌ Sync failed.", "error");
+    }
+  }
+}
+
+
 
   document.body.appendChild(btn);
 }
