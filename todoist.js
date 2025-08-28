@@ -139,49 +139,94 @@ export async function getProjectIdIfExists(projectName, token) {
   return found ? found.id : null;
 }
 
+/**
+ * Calculate smart reminder date based on opening date (if available) or due date.
+ * If no due date, reminder is 3 days from today.
+ * Returns a string in 'YYYY-MM-DD' format, or null if not possible.
+ */
 export function calculateReminderDate(assignment) {
-  const dueStr = assignment?.due_date || '';
-  const openStr = assignment?.opening_date || '';
-  if (!dueStr) return null;
-  try {
-    const due = new Date(`${dueStr}T00:00:00Z`);
-    const today = new Date();
-    today.setHours(0,0,0,0);
+  const dueDateStr = assignment?.due_date;
+  const openingDateStr = assignment?.opening_date;
 
-    let reference = due;
-    let useOpening = false;
-    if (openStr && openStr !== 'No opening date') {
-      const opening = new Date(`${openStr}T00:00:00Z`);
-      if (!isNaN(opening.getTime()) && opening > reference) {
-        reference = opening;
-        useOpening = true;
-      }
-    }
-
-    const daysUntil = Math.ceil((reference - today) / 86400000);
-    let before = 0;
-    if (daysUntil <= 0) before = 0;
-    else if (useOpening) {
-      if (daysUntil <= 1) before = 0;
-      else if (daysUntil <= 3) before = 1;
-      else if (daysUntil <= 7) before = 2;
-      else if (daysUntil <= 14) before = 3;
-      else before = 7;
-    } else {
-      if (daysUntil <= 3) before = Math.max(1, daysUntil - 1);
-      else if (daysUntil <= 7) before = 3;
-      else if (daysUntil <= 14) before = 5;
-      else if (daysUntil <= 30) before = 7;
-      else before = 14;
-    }
-
-    const reminder = new Date(reference);
-    reminder.setDate(reminder.getDate() - before);
-    if (reminder < today) reminder.setTime(today.getTime());
-    return reminder.toISOString().slice(0,10);
-  } catch {
-    return null;
+  // Helper to parse YYYY-MM-DD to Date (midnight)
+  function parseDate(str) {
+    if (!str || str === 'No due date' || str === 'No opening date') return null;
+    const d = new Date(str);
+    if (isNaN(d.getTime())) return null;
+    d.setHours(0,0,0,0);
+    return d;
   }
+  // Helper to format Date to YYYY-MM-DD
+  function formatDate(d) {
+    return d.toISOString().slice(0, 10);
+  }
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  // If no due date, set reminder 3 days from today
+  if (!dueDateStr || dueDateStr === 'No due date') {
+    const reminderDate = new Date(today);
+    reminderDate.setDate(reminderDate.getDate() + 3);
+    return formatDate(reminderDate);
+  }
+
+  let referenceDate = parseDate(dueDateStr);
+  let referenceType = "due date";
+
+  if (openingDateStr && openingDateStr !== 'No opening date') {
+    const openingDate = parseDate(openingDateStr);
+    if (openingDate && openingDate > referenceDate) {
+      referenceDate = openingDate;
+      referenceType = "opening date";
+    }
+  }
+
+  if (!referenceDate) {
+    // fallback: 3 days from today
+    const reminderDate = new Date(today);
+    reminderDate.setDate(reminderDate.getDate() + 3);
+    return formatDate(reminderDate);
+  }
+
+  const daysUntilReference = Math.floor((referenceDate - today) / (1000 * 60 * 60 * 24));
+
+  let reminderDaysBefore = 0;
+  if (daysUntilReference <= 0) {
+    // Already due/opened or overdue, set reminder for today
+    return formatDate(today);
+  } else if (referenceType === "opening date") {
+    if (daysUntilReference <= 1) {
+      reminderDaysBefore = 0;
+    } else if (daysUntilReference <= 3) {
+      reminderDaysBefore = 1;
+    } else if (daysUntilReference <= 7) {
+      reminderDaysBefore = 2;
+    } else if (daysUntilReference <= 14) {
+      reminderDaysBefore = 3;
+    } else {
+      reminderDaysBefore = 7;
+    }
+  } else {
+    // For due dates
+    if (daysUntilReference <= 3) {
+      reminderDaysBefore = Math.max(1, daysUntilReference - 1);
+    } else if (daysUntilReference <= 7) {
+      reminderDaysBefore = 3;
+    } else if (daysUntilReference <= 14) {
+      reminderDaysBefore = 5;
+    } else if (daysUntilReference <= 30) {
+      reminderDaysBefore = 7;
+    } else {
+      reminderDaysBefore = 14;
+    }
+  }
+
+  let reminderDate = new Date(referenceDate);
+  reminderDate.setDate(reminderDate.getDate() - reminderDaysBefore);
+  if (reminderDate < today) reminderDate = today;
+
+  return formatDate(reminderDate);
 }
 
 export function formatTaskContent(assignment) {
@@ -303,60 +348,83 @@ export async function hasMeaningfulChanges(assignment, taskId, token) {
 
 
 export async function createTask(assignment, projectId, token) {
+  const content = formatTaskContent(assignment);
+  const description = formatTaskDescription(assignment);
+  const courseCode = assignment?.course_code || "";
+
   const body = {
-    content: formatTaskContent(assignment),
-    description: formatTaskDescription(assignment),
+    content,
+    description,
     project_id: projectId,
-    priority: 2
+    priority: 2,
   };
-  
-  const dueDate = assignment?.due_date;
 
-  if (dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
-    const reminder = calculateReminderDate(assignment);
-    body.due_date = reminder || dueDate;
+const smartDate = calculateReminderDate(assignment);
+if (smartDate) {
+  body.due_date = smartDate;
+  log(`Set due_date to ${smartDate}`);
+}
+
+  if (courseCode) {
+    body.labels = [courseCode.toLowerCase()];
   }
 
-  const res = await fetch(`${TODOIST_BASE}/tasks`, {
-    method: 'POST',
+  log("Creating task with body:", body);
+
+  const response = await fetch(`${TODOIST_BASE}/tasks`, {
+    method: "POST",
     headers: headers(token),
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
-  
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`API Error (${res.status}): ${errorText}`);
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to create task: ${response.status} - ${text}`);
   }
-  return true;
+
+  return await response.json();
 }
 
 
-export async function updateTask(assignment, taskId, token) {
+export async function updateTask(taskId, assignment, projectId, token) {
+  const content = formatTaskContent(assignment);
+  const description = formatTaskDescription(assignment);
+  const courseCode = assignment?.course_code || "";
+
   const body = {
-    content: formatTaskContent(assignment),
-    description: formatTaskDescription(assignment),
-    priority: 2
+    content,
+    description,
+    project_id: projectId,
+    priority: 2,
   };
 
-  const dueDate = assignment?.due_date;
+  const smartDate = calculateReminderDate(assignment);
+if (smartDate) {
+  body.due_date = smartDate;
+  log(`Set due_date to ${smartDate}`);
+}1
 
-  if (dueDate && /^\d{4}-\d{2}-\d{2}$/.test(dueDate)) {
-    const reminder = calculateReminderDate(assignment);
-    body.due_date = reminder || dueDate;
+  if (courseCode) {
+    body.labels = [courseCode.toLowerCase()];
   }
 
-  const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, {
-    method: 'POST',
+  log("Updating task with body:", body);
+
+  const response = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, {
+    method: "POST",
     headers: headers(token),
-    body: JSON.stringify(body)
+    body: JSON.stringify(body),
   });
 
-  if (!res.ok) {
-    const errorText = await res.text();
-    throw new Error(`API Error (${res.status}): ${errorText}`);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Failed to update task: ${response.status} - ${text}`);
   }
-  return true;
+
+  return await response.json();
 }
+
+
 
 export async function deleteTask(taskId, token) {
   const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, { method: 'DELETE', headers: headers(token) });
@@ -387,7 +455,7 @@ export async function syncAssignments(assignments) {
       const taskId = a._todoist_task_id;
       const changes = await hasMeaningfulChanges(a, taskId, token);
       if (changes) {
-        const success = await updateTask(a, taskId, token);
+        const success = await updateTask(taskId, a, projectId, token);
         if (success) {
           results.updated.push(a.title);
         } else {
