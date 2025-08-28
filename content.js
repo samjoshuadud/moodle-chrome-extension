@@ -148,17 +148,33 @@ function injectScrapeButton() {
     }
   }
 
-  // --- Auto-scraping logic for after a redirect ---
-  (async function autoScrapeAfterRedirect() {
-    const autoScrape = sessionStorage.getItem('autoScrape');
-    if (autoScrape === 'true' && window.location.href.includes('/my/courses.php')) {
-      sessionStorage.removeItem('autoScrape');
-      console.log("⚡ Auto-scraping after redirect...");
-      await doScrapeAndSync();
-    }
-  })();
+// In content.js, inside the injectScrapeButton function
 
-  // --- Button Click Handler ---
+(async function autoScrapeAfterRedirect() {
+  const autoScrape = sessionStorage.getItem('autoScrape');
+  if (autoScrape === 'true' && window.location.href.includes('/my/courses.php')) {
+    sessionStorage.removeItem('autoScrape');
+    console.log("⚡ Auto-scraping after redirect...");
+    if (window.logToSidebar) window.logToSidebar("⏳ Page loaded, waiting for course content...");
+    
+    try {
+      // 1. WAIT for the main course container to exist on the page.
+      //    Use the selector that works for your Moodle page.
+      await waitForElement('[data-region="card-deck"]');
+      
+      if (window.logToSidebar) window.logToSidebar("✅ Course content found, starting auto-scrape.");
+      
+      // 2. NOW that the content is loaded, run the scrape.
+      await doScrapeAndSync();
+      
+    } catch (error) {
+      console.error("Auto-scrape failed:", error);
+      if (window.logToSidebar) window.logToSidebar(`❌ Auto-scrape failed: ${error.message}`, "error");
+    }
+  }
+})();
+
+
   btn.onclick = async () => {
     const currentUrl = window.location.href;
     const coursesLink = document.querySelector('a[href="https://tbl.umak.edu.ph/my/courses.php"]');
@@ -169,11 +185,15 @@ function injectScrapeButton() {
       return;
     }
 
+    // If we are NOT on the courses page...
     if (!currentUrl.includes('/my/courses.php')) {
       if (coursesLink) {
         if (window.logToSidebar) window.logToSidebar("🔗 Navigating to My Courses...");
+        // 1. Set the flag to auto-scrape after the redirect.
         sessionStorage.setItem('autoScrape', 'true');
+        // 2. Click the link to navigate.
         coursesLink.click();
+        // 3. STOP here. Let the browser navigate and let the auto-scraper take over on the next page.
         return;
       } else {
         if (window.logToSidebar) window.logToSidebar("🔒 Not logged in", "error");
@@ -182,9 +202,9 @@ function injectScrapeButton() {
       }
     }
 
-    // If we’re here, we are on the courses page, so run the main logic
-    await doScrapeAndSync();
-  };
+  // If we ARE on the courses page, run the main logic directly.
+  await doScrapeAndSync();
+};
 
   document.body.appendChild(btn);
 }
@@ -199,6 +219,23 @@ document.addEventListener("readystatechange", () => {
   if (document.readyState === "complete") injectScrapeButton();
 });
 
+
+function waitForElement(selector, timeout = 5000) {
+  return new Promise((resolve, reject) => {
+    const interval = setInterval(() => {
+      const element = document.querySelector(selector);
+      if (element) {
+        clearInterval(interval);
+        resolve(element);
+      }
+    }, 100); // Check every 100ms
+
+    setTimeout(() => {
+      clearInterval(interval);
+      reject(new Error(`Element with selector "${selector}" not found within ${timeout}ms.`));
+    }, timeout);
+  });
+}
 
 
 function renderGroupedAssignments(assignments) {
