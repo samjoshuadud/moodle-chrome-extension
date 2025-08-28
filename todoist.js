@@ -151,6 +151,27 @@ export function calculateReminderDate(assignment) {
   // Helper to parse YYYY-MM-DD to Date (midnight)
   function parseDate(str) {
     if (!str || str === 'No due date' || str === 'No opening date') return null;
+    // Try to parse Moodle's format: "Friday, 29 August 2025, 11:59 PM"
+    const match = str.match(/(\d{1,2}) (\w+) (\d{4})(?:, (\d{1,2}):(\d{2}) (AM|PM))?/i);
+    if (match) {
+      const day = parseInt(match[1], 10);
+      const monthStr = match[2];
+      const year = parseInt(match[3], 10);
+      const months = ["january","february","march","april","may","june","july","august","september","october","november","december"];
+      const month = months.indexOf(monthStr.toLowerCase());
+      let date = new Date(year, month, day);
+      if (match[4] && match[5] && match[6]) {
+        let hour = parseInt(match[4], 10);
+        const minute = parseInt(match[5], 10);
+        if (match[6].toUpperCase() === "PM" && hour !== 12) hour += 12;
+        if (match[6].toUpperCase() === "AM" && hour === 12) hour = 0;
+        date.setHours(hour, minute, 0, 0);
+      } else {
+        date.setHours(0,0,0,0);
+      }
+      return date;
+    }
+    // Fallback to Date constructor
     const d = new Date(str);
     if (isNaN(d.getTime())) return null;
     d.setHours(0,0,0,0);
@@ -224,8 +245,21 @@ export function calculateReminderDate(assignment) {
 
   let reminderDate = new Date(referenceDate);
   reminderDate.setDate(reminderDate.getDate() - reminderDaysBefore);
-  if (reminderDate < today) reminderDate = today;
 
+  const realDueDate = parseDate(dueDateStr);
+
+  console.log('[DEBUG] Assignment:', assignment.title);
+  console.log('[DEBUG] dueDateStr:', dueDateStr, 'openingDateStr:', openingDateStr);
+  console.log('[DEBUG] referenceDate:', formatDate(referenceDate), 'reminderDaysBefore:', reminderDaysBefore);
+  console.log('[DEBUG] calculated reminderDate:', formatDate(reminderDate));
+  console.log('[DEBUG] realDueDate:', formatDate(realDueDate), 'today:', formatDate(today));
+
+  if (realDueDate && realDueDate >= today && reminderDate < today) {
+    console.log('[DEBUG] Clamping reminderDate to today');
+    reminderDate = new Date(today);
+  }
+
+  console.log('[DEBUG] Final reminderDate:', formatDate(reminderDate));
   return formatDate(reminderDate);
 }
 
