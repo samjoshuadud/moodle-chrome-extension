@@ -138,7 +138,6 @@ export async function getProjectIdIfExists(projectName, token) {
 
 /**
  * Calculate smart reminder date based on opening date (if available) or due date.
- * If no due date, reminder is 3 days from today.
  * Returns a string in 'YYYY-MM-DD' format, or null if not possible.
  */
 export function calculateReminderDate(assignment) {
@@ -179,7 +178,6 @@ export function calculateReminderDate(assignment) {
   const today = new Date();
   today.setHours(0,0,0,0);
 
-  // 🚨 Do not fabricate a date if Moodle gave none
   if (!dueDateStr || dueDateStr === 'No due date') {
     return null;
   }
@@ -195,7 +193,6 @@ export function calculateReminderDate(assignment) {
     }
   }
 
-  // 🚨 If we still can’t parse a valid date, don’t fabricate one
   if (!referenceDate) {
     return null;
   }
@@ -413,7 +410,6 @@ export async function updateTask(taskId, assignment, projectId, token) {
   if (smartDate) {
     body.due_date = smartDate;
   } else {
-    // To clear the due date, we must send 'no date' as a string.
     body.due_string = 'no date';
   }
 
@@ -454,17 +450,14 @@ export async function syncAssignments(assignments) {
     return { added: [], updated: [], completed: [], skipped: [], errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }] };
   }
 
-  // This function correctly finds tasks that are currently ACTIVE in Todoist
   const groups = await preventDuplicateSync(valid, projectId, token);
 
   const results = { added: [], updated: [], completed: [], skipped: [], errors: [] };
 
-  // --- Handle assignments that are ALREADY in Todoist ---
   for (const a of groups.existing) {
     try {
       const taskId = a._todoist_task_id;
 
-      // YOUR LOGIC: If it's completed in Moodle and upcoming in Todoist, close it.
       if (a.status === "Completed") {
         const success = await updateTaskStatus(taskId, true, token);
         if (success) {
@@ -489,16 +482,13 @@ export async function syncAssignments(assignments) {
     }
   }
 
-  // --- Handle assignments that are NOT in Todoist ---
   for (const a of groups.new) {
     try {
-      // YOUR LOGIC: If it's completed in Moodle and not in Todoist, just skip.
       if (a.status === "Completed") {
         results.skipped.push(a.title);
-        continue; // This is the key change: we just skip it.
+        continue; 
       }
 
-      // Otherwise, it's a new pending task, so we create it.
       const task = await createTask(a, projectId, token);
       if (task) results.added.push(a.title);
       else results.errors.push({ title: a.title, reason: 'API creation failed.' });
