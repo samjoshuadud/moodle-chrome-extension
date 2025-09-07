@@ -353,8 +353,7 @@ export async function hasMeaningfulChanges(assignment, taskId, token) {
   return false;
 }
 
-
-export async function createTask(assignment, projectId, token) {
+export async function createTask(assignment, projectId, token, settings) {
   const content = formatTaskContent(assignment);
   const description = formatTaskDescription(assignment);
   const courseCode = assignment?.course_code || "";
@@ -366,12 +365,13 @@ export async function createTask(assignment, projectId, token) {
     priority: 2,
   };
 
-const smartDate = calculateReminderDate(assignment);
-if (smartDate) {
-  body.due_date = smartDate;
-} else {
-  body.due_date = null; // 🚨 force clear
-}
+  if (settings.useExactDate) {
+    const moodleDueDate = assignment.due_date && assignment.due_date !== 'No due date' ? assignment.due_date : null;
+    if (moodleDueDate) body.due_date = moodleDueDate;
+  } else {
+    const smartDate = calculateReminderDate(assignment);
+    if (smartDate) body.due_date = smartDate;
+  }
 
   if (courseCode) {
     body.labels = [courseCode.toLowerCase()];
@@ -392,9 +392,7 @@ if (smartDate) {
 
   return await response.json();
 }
-
-
-export async function updateTask(taskId, assignment, projectId, token) {
+export async function updateTask(taskId, assignment, projectId, token, settings) {
   const content = formatTaskContent(assignment);
   const description = formatTaskDescription(assignment);
   const courseCode = assignment?.course_code || "";
@@ -406,11 +404,17 @@ export async function updateTask(taskId, assignment, projectId, token) {
     priority: 2,
   };
 
-  const smartDate = calculateReminderDate(assignment);
-  if (smartDate) {
-    body.due_date = smartDate;
+  // LOGIC TO USE THE NEW SETTING
+  if (settings.useExactDate) {
+    const moodleDueDate = assignment.due_date && assignment.due_date !== 'No due date' ? assignment.due_date : 'no date';
+    body.due_string = moodleDueDate;
   } else {
-    body.due_string = 'no date';
+    const smartDate = calculateReminderDate(assignment);
+    if (smartDate) {
+      body.due_date = smartDate;
+    } else {
+      body.due_string = 'no date';
+    }
   }
 
   if (courseCode) {
@@ -436,9 +440,8 @@ export async function updateTask(taskId, assignment, projectId, token) {
 export async function deleteTask(taskId, token) {
   const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, { method: 'DELETE', headers: headers(token) });
   return res.status === 204;
-}
-export async function syncAssignments(assignments) {
-  const settings = await getSettings();
+}export async function syncAssignments(assignments) {
+  const settings = await getSettings(); // This now contains `useExactDate`
   const token = settings.TODOIST_TOKEN;
   if (!token) {
     return { added: [], updated: [], completed: [], skipped: [], errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }] };
@@ -465,13 +468,12 @@ export async function syncAssignments(assignments) {
         } else {
           results.errors.push({ title: a.title, reason: 'API completion failed.' });
         }
-        continue; // Go to the next item
+        continue;
       }
 
-      // Otherwise, check for changes and update if needed
       const changes = await hasMeaningfulChanges(a, taskId, token);
       if (changes) {
-        const success = await updateTask(taskId, a, projectId, token);
+        const success = await updateTask(taskId, a, projectId, token, settings); // Pass settings
         if (success) results.updated.push(a.title);
         else results.errors.push({ title: a.title, reason: 'API update failed.' });
       } else {
@@ -489,7 +491,7 @@ export async function syncAssignments(assignments) {
         continue; 
       }
 
-      const task = await createTask(a, projectId, token);
+      const task = await createTask(a, projectId, token, settings); // Pass settings
       if (task) results.added.push(a.title);
       else results.errors.push({ title: a.title, reason: 'API creation failed.' });
       
