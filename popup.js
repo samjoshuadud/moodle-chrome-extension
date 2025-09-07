@@ -1,15 +1,13 @@
 // popup.js
-
 const statusEl = document.getElementById('status');
 const metaEl = document.getElementById('meta');
 const refreshBtn = document.getElementById('refreshBtn');
 const tokenEl = document.getElementById('token');
 const projectEl = document.getElementById('project');
 const intervalEl = document.getElementById('interval');
-const useExactDateEl = document.getElementById('useExactDate'); 
+const useExactDateEl = document.getElementById('useExactDate'); // Add this
 const saveBtn = document.getElementById('saveBtn');
 const testBtn = document.getElementById('testBtn');
-
 function setStatus(s) { statusEl.textContent = s; }
 
 function fmt(ts) { return ts ? new Date(ts).toLocaleString() : '—'; }
@@ -41,14 +39,14 @@ async function loadSettings() {
   tokenEl.value = s.TODOIST_TOKEN || '';
   projectEl.value = s.projectName || 'School Assignments';
   intervalEl.value = s.scrapeIntervalMinutes || 60;
-  useExactDateEl.checked = s.useExactDate || false; }
-
+  useExactDateEl.checked = s.useExactDate || false; 
+}
 saveBtn.addEventListener('click', async () => {
   const settings = {
     TODOIST_TOKEN: tokenEl.value.trim(),
     projectName: projectEl.value.trim() || 'School Assignments',
     scrapeIntervalMinutes: Math.max(5, Math.min(1440, parseInt(intervalEl.value || '60', 10))),
-    useExactDate: useExactDateEl.checked,   
+    useExactDate: useExactDateEl.checked, // This line saves the checkbox state
   };
 
   await chrome.storage.local.set({ settings });

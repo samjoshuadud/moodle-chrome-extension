@@ -12,6 +12,35 @@ function headers(token) {
     'Content-Type': 'application/json'
   };
 }
+function parseDate(str) {
+  if (!str || str === 'No due date' || str === 'No opening date') return null;
+  
+  // Handles formats like "Saturday, 30 August 2025, 11:59 PM"
+  const complexMatch = str.match(/(\w+,\s+\d{1,2}\s+\w+\s+\d{4},\s+\d{1,2}:\d{2}\s+[AP]M)/i);
+  if (complexMatch) {
+      const d = new Date(complexMatch[1]);
+      if (!isNaN(d.getTime())) return d;
+  }
+  
+  // Handles formats like "30 August 2025"
+  const simpleMatch = str.match(/(\d{1,2}\s+\w+\s+\d{4})/i);
+   if (simpleMatch) {
+      const d = new Date(simpleMatch[1]);
+      if (!isNaN(d.getTime())) return d;
+  }
+  
+  // Fallback for YYYY-MM-DD and other standard formats
+  const d = new Date(str);
+  if (isNaN(d.getTime())) return null;
+  
+  return d;
+}
+
+function formatDate(d) {
+  if (!d || isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
 
 export async function testConnection(token) {
   try {
@@ -40,7 +69,6 @@ export async function getOrCreateProject(projectName, token) {
   return proj.id;
 }
 
-// Get all tasks for a project (optionally include completed)
 export async function getAllAssignmentsFromTodoist(projectName, token) {
   try {
     const projectId = await getProjectIdIfExists(projectName, token);
@@ -74,11 +102,9 @@ export async function getProjectStats(projectName, token) {
 export async function updateTaskStatus(taskId, completed, token) {
   try {
     if (completed) {
-      // Close the task
       const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}/close`, { method: 'POST', headers: headers(token) });
       return res.status === 204;
     } else {
-      // Reopen the task
       const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}/reopen`, { method: 'POST', headers: headers(token) });
       return res.status === 204;
     }
@@ -103,7 +129,6 @@ export async function deleteAssignmentTask(assignment, projectName, token) {
   }
 }
 
-// Sync completion status from Todoist back to local assignments
 export async function syncStatusFromTodoist(localAssignments, projectName, token) {
   try {
     if (!Array.isArray(localAssignments)) return {};
@@ -144,39 +169,8 @@ export function calculateReminderDate(assignment) {
   const dueDateStr = assignment?.due_date;
   const openingDateStr = assignment?.opening_date;
 
-  function parseDate(str) {
-    if (!str || str === 'No due date' || str === 'No opening date') return null;
-    const match = str.match(/(\d{1,2}) (\w+) (\d{4})(?:, (\d{1,2}):(\d{2}) (AM|PM))?/i);
-    if (match) {
-      const day = parseInt(match[1], 10);
-      const monthStr = match[2];
-      const year = parseInt(match[3], 10);
-      const months = ["january","february","march","april","may","june","july","august","september","october","november","december"];
-      const month = months.indexOf(monthStr.toLowerCase());
-      let date = new Date(year, month, day);
-      if (match[4] && match[5] && match[6]) {
-        let hour = parseInt(match[4], 10);
-        const minute = parseInt(match[5], 10);
-        if (match[6].toUpperCase() === "PM" && hour !== 12) hour += 12;
-        if (match[6].toUpperCase() === "AM" && hour === 12) hour = 0;
-        date.setHours(hour, minute, 0, 0);
-      } else {
-        date.setHours(0,0,0,0);
-      }
-      return date;
-    }
-    const d = new Date(str);
-    if (isNaN(d.getTime())) return null;
-    d.setHours(0,0,0,0);
-    return d;
-  }
-
-  function formatDate(d) {
-    return d.toISOString().slice(0, 10);
-  }
-
   const today = new Date();
-  today.setHours(0,0,0,0);
+  today.setHours(0, 0, 0, 0);
 
   if (!dueDateStr || dueDateStr === 'No due date') {
     return null;
@@ -221,18 +215,10 @@ export function calculateReminderDate(assignment) {
 
   const realDueDate = parseDate(dueDateStr);
 
-  console.log('[DEBUG] Assignment:', assignment.title);
-  console.log('[DEBUG] dueDateStr:', dueDateStr, 'openingDateStr:', openingDateStr);
-  console.log('[DEBUG] referenceDate:', formatDate(referenceDate), 'reminderDaysBefore:', reminderDaysBefore);
-  console.log('[DEBUG] calculated reminderDate:', formatDate(reminderDate));
-  console.log('[DEBUG] realDueDate:', realDueDate ? formatDate(realDueDate) : null, 'today:', formatDate(today));
-
   if (realDueDate && realDueDate >= today && reminderDate < today) {
-    console.log('[DEBUG] Clamping reminderDate to today');
     reminderDate = new Date(today);
   }
-
-  console.log('[DEBUG] Final reminderDate:', formatDate(reminderDate));
+  
   return formatDate(reminderDate);
 }
 
@@ -352,7 +338,6 @@ export async function hasMeaningfulChanges(assignment, taskId, token) {
   if (expectedReminderDate && expectedReminderDate !== currentDue) return true;
   return false;
 }
-
 export async function createTask(assignment, projectId, token, settings) {
   const content = formatTaskContent(assignment);
   const description = formatTaskDescription(assignment);
@@ -365,9 +350,10 @@ export async function createTask(assignment, projectId, token, settings) {
     priority: 2,
   };
 
+  // FIX: Properly parse and format the date
   if (settings.useExactDate) {
-    const moodleDueDate = assignment.due_date && assignment.due_date !== 'No due date' ? assignment.due_date : null;
-    if (moodleDueDate) body.due_date = moodleDueDate;
+    const moodleDate = parseDate(assignment.due_date);
+    if (moodleDate) body.due_date = formatDate(moodleDate);
   } else {
     const smartDate = calculateReminderDate(assignment);
     if (smartDate) body.due_date = smartDate;
@@ -376,8 +362,6 @@ export async function createTask(assignment, projectId, token, settings) {
   if (courseCode) {
     body.labels = [courseCode.toLowerCase()];
   }
-
-  log("Creating task with body:", body);
 
   const response = await fetch(`${TODOIST_BASE}/tasks`, {
     method: "POST",
@@ -392,6 +376,7 @@ export async function createTask(assignment, projectId, token, settings) {
 
   return await response.json();
 }
+
 export async function updateTask(taskId, assignment, projectId, token, settings) {
   const content = formatTaskContent(assignment);
   const description = formatTaskDescription(assignment);
@@ -404,10 +389,10 @@ export async function updateTask(taskId, assignment, projectId, token, settings)
     priority: 2,
   };
 
-  // LOGIC TO USE THE NEW SETTING
+  // FIX: Properly parse and format the date
   if (settings.useExactDate) {
-    const moodleDueDate = assignment.due_date && assignment.due_date !== 'No due date' ? assignment.due_date : 'no date';
-    body.due_string = moodleDueDate;
+    const moodleDate = parseDate(assignment.due_date);
+    body.due_string = moodleDate ? formatDate(moodleDate) : 'no date';
   } else {
     const smartDate = calculateReminderDate(assignment);
     if (smartDate) {
@@ -420,8 +405,6 @@ export async function updateTask(taskId, assignment, projectId, token, settings)
   if (courseCode) {
     body.labels = [courseCode.toLowerCase()];
   }
-
-  log("Updating task with body:", body);
 
   const response = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, {
     method: "POST",
@@ -440,7 +423,9 @@ export async function updateTask(taskId, assignment, projectId, token, settings)
 export async function deleteTask(taskId, token) {
   const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, { method: 'DELETE', headers: headers(token) });
   return res.status === 204;
-}export async function syncAssignments(assignments) {
+}
+
+export async function syncAssignments(assignments) {
   const settings = await getSettings(); // This now contains `useExactDate`
   const token = settings.TODOIST_TOKEN;
   if (!token) {
