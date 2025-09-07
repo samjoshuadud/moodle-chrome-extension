@@ -184,9 +184,7 @@ export function calculateReminderDate(assignment) {
 
   // If no due date, set reminder 3 days from today
   if (!dueDateStr || dueDateStr === 'No due date') {
-    const reminderDate = new Date(today);
-    reminderDate.setDate(reminderDate.getDate() + 3);
-    return formatDate(reminderDate);
+    return null;
   }
 
   let referenceDate = parseDate(dueDateStr);
@@ -480,7 +478,6 @@ export async function syncAssignments(assignments) {
   const groups = await preventDuplicateSync(valid, projectId, token);
   const results = { added: [], updated: [], skipped: [], errors: [], filtered: filtered.map(a => a.title) };
 
-  // --- Process existing tasks ---
   for (const a of groups.existing) {
     try {
       const taskId = a._todoist_task_id;
@@ -501,14 +498,12 @@ export async function syncAssignments(assignments) {
     }
   }
 
-  // --- Process new tasks ---
   for (const a of groups.new) {
     try {
       const success = await createTask(a, projectId, token);
       if (success) {
         results.added.push(a.title);
       } else {
-        // Add a detailed error if creation fails
         results.errors.push({ title: a.title, reason: 'API creation failed.' });
       }
     } catch (e) {
