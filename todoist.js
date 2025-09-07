@@ -408,13 +408,14 @@ export async function updateTask(taskId, assignment, projectId, token) {
     project_id: projectId,
     priority: 2,
   };
-const smartDate = calculateReminderDate(assignment);
-if (smartDate) {
-  body.due_date = smartDate;
-} else {
-  body.due_date = ''; // 🚨 force clear
-}
 
+  const smartDate = calculateReminderDate(assignment);
+  if (smartDate) {
+    body.due_date = smartDate;
+  } else {
+    // To clear the due date, we must send 'no date' as a string.
+    body.due_string = 'no date';
+  }
 
   if (courseCode) {
     body.labels = [courseCode.toLowerCase()];
@@ -436,8 +437,6 @@ if (smartDate) {
   return await response.json();
 }
 
-
-
 export async function deleteTask(taskId, token) {
   const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, { method: 'DELETE', headers: headers(token) });
   return res.status === 204;
@@ -455,38 +454,28 @@ export async function syncAssignments(assignments) {
     return { added: [], updated: [], completed: [], skipped: [], errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }] };
   }
 
-  // Prevent duplicates in upcoming tasks
+  // This function correctly finds tasks that are currently ACTIVE in Todoist
   const groups = await preventDuplicateSync(valid, projectId, token);
-
-  // Fetch completed tasks so we don’t duplicate
-  const completedRes = await fetch(`${TODOIST_BASE}/tasks?project_id=${encodeURIComponent(projectId)}&completed_since=2000-01-01T00:00:00Z`, {
-    headers: headers(token)
-  });
-  const completedTasks = completedRes.ok ? await completedRes.json() : [];
-  const completedTaskIds = new Set(completedTasks.map(t => extractTaskIdFromDescription(t.description)));
 
   const results = { added: [], updated: [], completed: [], skipped: [], errors: [] };
 
-  // Handle existing tasks
+  // --- Handle assignments that are ALREADY in Todoist ---
   for (const a of groups.existing) {
     try {
       const taskId = a._todoist_task_id;
 
+      // YOUR LOGIC: If it's completed in Moodle and upcoming in Todoist, close it.
       if (a.status === "Completed") {
-        // Close only if not already closed
-        if (!completedTaskIds.has(a.task_id)) {
-          const success = await updateTaskStatus(taskId, true, token);
-          if (success) {
-            results.completed.push(a.title);
-          } else {
-            results.errors.push({ title: a.title, reason: 'API completion failed.' });
-          }
+        const success = await updateTaskStatus(taskId, true, token);
+        if (success) {
+          results.completed.push(a.title);
         } else {
-          results.skipped.push(a.title);
+          results.errors.push({ title: a.title, reason: 'API completion failed.' });
         }
-        continue;
+        continue; // Go to the next item
       }
 
+      // Otherwise, check for changes and update if needed
       const changes = await hasMeaningfulChanges(a, taskId, token);
       if (changes) {
         const success = await updateTask(taskId, a, projectId, token);
@@ -500,27 +489,20 @@ export async function syncAssignments(assignments) {
     }
   }
 
-  // Handle new tasks
+  // --- Handle assignments that are NOT in Todoist ---
   for (const a of groups.new) {
     try {
+      // YOUR LOGIC: If it's completed in Moodle and not in Todoist, just skip.
       if (a.status === "Completed") {
-        // Only create if not already completed in Todoist
-        if (!completedTaskIds.has(a.task_id)) {
-          const task = await createTask(a, projectId, token);
-          if (task) {
-            await updateTaskStatus(task.id, true, token); // close immediately
-            results.completed.push(a.title);
-          } else {
-            results.errors.push({ title: a.title, reason: 'API creation failed (completed task).' });
-          }
-        } else {
-          results.skipped.push(a.title);
-        }
-      } else {
-        const task = await createTask(a, projectId, token);
-        if (task) results.added.push(a.title);
-        else results.errors.push({ title: a.title, reason: 'API creation failed.' });
+        results.skipped.push(a.title);
+        continue; // This is the key change: we just skip it.
       }
+
+      // Otherwise, it's a new pending task, so we create it.
+      const task = await createTask(a, projectId, token);
+      if (task) results.added.push(a.title);
+      else results.errors.push({ title: a.title, reason: 'API creation failed.' });
+      
     } catch (e) {
       results.errors.push({ title: a.title, reason: e.message });
     }
@@ -528,4 +510,3 @@ export async function syncAssignments(assignments) {
 
   return results;
 }
-
