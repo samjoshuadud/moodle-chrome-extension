@@ -145,10 +145,8 @@ export function calculateReminderDate(assignment) {
   const dueDateStr = assignment?.due_date;
   const openingDateStr = assignment?.opening_date;
 
-  // Helper to parse YYYY-MM-DD to Date (midnight)
   function parseDate(str) {
     if (!str || str === 'No due date' || str === 'No opening date') return null;
-    // Try to parse Moodle's format: "Friday, 29 August 2025, 11:59 PM"
     const match = str.match(/(\d{1,2}) (\w+) (\d{4})(?:, (\d{1,2}):(\d{2}) (AM|PM))?/i);
     if (match) {
       const day = parseInt(match[1], 10);
@@ -168,13 +166,12 @@ export function calculateReminderDate(assignment) {
       }
       return date;
     }
-    // Fallback to Date constructor
     const d = new Date(str);
     if (isNaN(d.getTime())) return null;
     d.setHours(0,0,0,0);
     return d;
   }
-  // Helper to format Date to YYYY-MM-DD
+
   function formatDate(d) {
     return d.toISOString().slice(0, 10);
   }
@@ -182,7 +179,7 @@ export function calculateReminderDate(assignment) {
   const today = new Date();
   today.setHours(0,0,0,0);
 
-  // If no due date, set reminder 3 days from today
+  // 🚨 Do not fabricate a date if Moodle gave none
   if (!dueDateStr || dueDateStr === 'No due date') {
     return null;
   }
@@ -192,50 +189,34 @@ export function calculateReminderDate(assignment) {
 
   if (openingDateStr && openingDateStr !== 'No opening date') {
     const openingDate = parseDate(openingDateStr);
-    if (openingDate && openingDate > referenceDate) {
+    if (openingDate && (!referenceDate || openingDate > referenceDate)) {
       referenceDate = openingDate;
       referenceType = "opening date";
     }
   }
 
+  // 🚨 If we still can’t parse a valid date, don’t fabricate one
   if (!referenceDate) {
-    // fallback: 3 days from today
-    const reminderDate = new Date(today);
-    reminderDate.setDate(reminderDate.getDate() + 3);
-    return formatDate(reminderDate);
+    return null;
   }
 
   const daysUntilReference = Math.floor((referenceDate - today) / (1000 * 60 * 60 * 24));
 
   let reminderDaysBefore = 0;
   if (daysUntilReference <= 0) {
-    // Already due/opened or overdue, set reminder for today
     return formatDate(today);
   } else if (referenceType === "opening date") {
-    if (daysUntilReference <= 1) {
-      reminderDaysBefore = 0;
-    } else if (daysUntilReference <= 3) {
-      reminderDaysBefore = 1;
-    } else if (daysUntilReference <= 7) {
-      reminderDaysBefore = 2;
-    } else if (daysUntilReference <= 14) {
-      reminderDaysBefore = 3;
-    } else {
-      reminderDaysBefore = 7;
-    }
+    if (daysUntilReference <= 1) reminderDaysBefore = 0;
+    else if (daysUntilReference <= 3) reminderDaysBefore = 1;
+    else if (daysUntilReference <= 7) reminderDaysBefore = 2;
+    else if (daysUntilReference <= 14) reminderDaysBefore = 3;
+    else reminderDaysBefore = 7;
   } else {
-    // For due dates
-    if (daysUntilReference <= 3) {
-      reminderDaysBefore = Math.max(1, daysUntilReference - 1);
-    } else if (daysUntilReference <= 7) {
-      reminderDaysBefore = 3;
-    } else if (daysUntilReference <= 14) {
-      reminderDaysBefore = 5;
-    } else if (daysUntilReference <= 30) {
-      reminderDaysBefore = 7;
-    } else {
-      reminderDaysBefore = 14;
-    }
+    if (daysUntilReference <= 3) reminderDaysBefore = Math.max(1, daysUntilReference - 1);
+    else if (daysUntilReference <= 7) reminderDaysBefore = 3;
+    else if (daysUntilReference <= 14) reminderDaysBefore = 5;
+    else if (daysUntilReference <= 30) reminderDaysBefore = 7;
+    else reminderDaysBefore = 14;
   }
 
   let reminderDate = new Date(referenceDate);
@@ -247,7 +228,7 @@ export function calculateReminderDate(assignment) {
   console.log('[DEBUG] dueDateStr:', dueDateStr, 'openingDateStr:', openingDateStr);
   console.log('[DEBUG] referenceDate:', formatDate(referenceDate), 'reminderDaysBefore:', reminderDaysBefore);
   console.log('[DEBUG] calculated reminderDate:', formatDate(reminderDate));
-  console.log('[DEBUG] realDueDate:', formatDate(realDueDate), 'today:', formatDate(today));
+  console.log('[DEBUG] realDueDate:', realDueDate ? formatDate(realDueDate) : null, 'today:', formatDate(today));
 
   if (realDueDate && realDueDate >= today && reminderDate < today) {
     console.log('[DEBUG] Clamping reminderDate to today');
@@ -391,7 +372,8 @@ export async function createTask(assignment, projectId, token) {
 const smartDate = calculateReminderDate(assignment);
 if (smartDate) {
   body.due_date = smartDate;
-  log(`Set due_date to ${smartDate}`);
+} else {
+  body.due_date = null; // 🚨 force clear
 }
 
   if (courseCode) {
@@ -426,12 +408,13 @@ export async function updateTask(taskId, assignment, projectId, token) {
     project_id: projectId,
     priority: 2,
   };
-
-  const smartDate = calculateReminderDate(assignment);
+const smartDate = calculateReminderDate(assignment);
 if (smartDate) {
   body.due_date = smartDate;
-  log(`Set due_date to ${smartDate}`);
-}1
+} else {
+  body.due_date = ''; // 🚨 force clear
+}
+
 
   if (courseCode) {
     body.labels = [courseCode.toLowerCase()];
@@ -459,37 +442,56 @@ export async function deleteTask(taskId, token) {
   const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, { method: 'DELETE', headers: headers(token) });
   return res.status === 204;
 }
-
 export async function syncAssignments(assignments) {
   const settings = await getSettings();
   const token = settings.TODOIST_TOKEN;
   if (!token) {
-    return { added: [], updated: [], skipped: [], errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }], filtered: [] };
+    return { added: [], updated: [], completed: [], skipped: [], errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }] };
   }
 
-  // NEW: Track filtered assignments
-  const filtered = (assignments || []).filter(a => a && a.status === 'Completed');
-  const valid = (assignments || []).filter(a => a && a.title && a.status !== 'Completed');
+  const valid = (assignments || []).filter(a => a && a.title);
   const projectId = await getOrCreateProject(settings.projectName || 'School Assignments', token);
   if (!projectId) {
-    return { added: [], updated: [], skipped: [], errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }], filtered };
+    return { added: [], updated: [], completed: [], skipped: [], errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }] };
   }
 
+  // Prevent duplicates in upcoming tasks
   const groups = await preventDuplicateSync(valid, projectId, token);
-  const results = { added: [], updated: [], skipped: [], errors: [], filtered: filtered.map(a => a.title) };
 
+  // Fetch completed tasks so we don’t duplicate
+  const completedRes = await fetch(`${TODOIST_BASE}/tasks?project_id=${encodeURIComponent(projectId)}&completed_since=2000-01-01T00:00:00Z`, {
+    headers: headers(token)
+  });
+  const completedTasks = completedRes.ok ? await completedRes.json() : [];
+  const completedTaskIds = new Set(completedTasks.map(t => extractTaskIdFromDescription(t.description)));
+
+  const results = { added: [], updated: [], completed: [], skipped: [], errors: [] };
+
+  // Handle existing tasks
   for (const a of groups.existing) {
     try {
       const taskId = a._todoist_task_id;
+
+      if (a.status === "Completed") {
+        // Close only if not already closed
+        if (!completedTaskIds.has(a.task_id)) {
+          const success = await updateTaskStatus(taskId, true, token);
+          if (success) {
+            results.completed.push(a.title);
+          } else {
+            results.errors.push({ title: a.title, reason: 'API completion failed.' });
+          }
+        } else {
+          results.skipped.push(a.title);
+        }
+        continue;
+      }
+
       const changes = await hasMeaningfulChanges(a, taskId, token);
       if (changes) {
         const success = await updateTask(taskId, a, projectId, token);
-        if (success) {
-          results.updated.push(a.title);
-        } else {
-          // Add a detailed error if the update fails
-          results.errors.push({ title: a.title, reason: 'API update failed.' });
-        }
+        if (success) results.updated.push(a.title);
+        else results.errors.push({ title: a.title, reason: 'API update failed.' });
       } else {
         results.skipped.push(a.title);
       }
@@ -498,13 +500,26 @@ export async function syncAssignments(assignments) {
     }
   }
 
+  // Handle new tasks
   for (const a of groups.new) {
     try {
-      const success = await createTask(a, projectId, token);
-      if (success) {
-        results.added.push(a.title);
+      if (a.status === "Completed") {
+        // Only create if not already completed in Todoist
+        if (!completedTaskIds.has(a.task_id)) {
+          const task = await createTask(a, projectId, token);
+          if (task) {
+            await updateTaskStatus(task.id, true, token); // close immediately
+            results.completed.push(a.title);
+          } else {
+            results.errors.push({ title: a.title, reason: 'API creation failed (completed task).' });
+          }
+        } else {
+          results.skipped.push(a.title);
+        }
       } else {
-        results.errors.push({ title: a.title, reason: 'API creation failed.' });
+        const task = await createTask(a, projectId, token);
+        if (task) results.added.push(a.title);
+        else results.errors.push({ title: a.title, reason: 'API creation failed.' });
       }
     } catch (e) {
       results.errors.push({ title: a.title, reason: e.message });
