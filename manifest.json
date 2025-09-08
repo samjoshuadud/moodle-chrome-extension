@@ -12,13 +12,23 @@
     "https://tbl.umak.edu.ph/*",
     "https://api.todoist.com/*"
   ],
+  "icons": {
+    "16": "images/icon.png",
+    "48": "images/icon.png",
+    "128": "images/icon.png"
+  },
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
     "default_title": "Moodle Assignments",
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "images/icon.png",
+      "24": "images/icon.png",
+      "32": "images/icon.png"
+    }
   },
   "options_page": "options.html",
   "web_accessible_resources": [
