@@ -180,7 +180,7 @@ document.head.appendChild(style);
 
 console.log("🎨 Enhanced sidebar.js loaded with modern UI");
 
-// Auto-create sidebar for testing (remove in production)
+// Auto-create sidebar for testing (remove natin in production)
 // Remove auto-create for production. Add a loading indicator function.
 
 function showSidebarLoading(msg = 'Loading...') {
