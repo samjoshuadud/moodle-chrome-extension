@@ -1,7 +1,6 @@
 # Moodle → Todoist Sync Chrome Extension
 
 [![GitHub stars](https://img.shields.io/github/stars/samjoshuadud/moodle-chrome-extension?style=social)](https://github.com/samjoshuadud/moodle-chrome-extension/stargazers)
-[![License](https://img.shields.io/github/license/samjoshuadud/moodle-chrome-extension)](https://github.com/samjoshuadud/moodle-chrome-extension/blob/main/LICENSE)
 
 Stop manually copying deadlines. This free extension automatically scrapes your assignments from Moodle and adds them to your favorite to-do app, Todoist. Created by a student, for students.
 
