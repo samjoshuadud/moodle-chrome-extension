@@ -324,8 +324,7 @@ export async function preventDuplicateSync(assignments, projectId, token) {
   }
   return groups;
 }
-
-export async function hasMeaningfulChanges(assignment, taskId, token) {
+export async function hasMeaningfulChanges(assignment, taskId, token, settings) {
   const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, { headers: headers(token) });
   if (!res.ok) return true;
   const task = await res.json();
@@ -333,9 +332,16 @@ export async function hasMeaningfulChanges(assignment, taskId, token) {
   const todoistTitle = (task.content || '').toLowerCase().trim();
   if (localTitle !== todoistTitle) return true;
 
-  const expectedReminderDate = calculateReminderDate(assignment) || assignment?.due_date;
+  let expectedDueDate;
+  if (settings.useExactDate) {
+    const moodleDate = parseDate(assignment.due_date);
+    expectedDueDate = moodleDate ? formatDate(moodleDate) : null;
+  } else {
+    expectedDueDate = calculateReminderDate(assignment);
+  }
   const currentDue = task?.due?.date || null;
-  if (expectedReminderDate && expectedReminderDate !== currentDue) return true;
+  if (expectedDueDate !== currentDue) return true;
+
   return false;
 }
 export async function createTask(assignment, projectId, token, settings) {
@@ -455,8 +461,7 @@ export async function syncAssignments(assignments) {
         }
         continue;
       }
-
-      const changes = await hasMeaningfulChanges(a, taskId, token);
+      const changes = await hasMeaningfulChanges(a, taskId, token, settings);
       if (changes) {
         const success = await updateTask(taskId, a, projectId, token, settings); // Pass settings
         if (success) results.updated.push(a.title);
