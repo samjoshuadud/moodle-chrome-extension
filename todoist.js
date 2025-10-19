@@ -527,22 +527,56 @@ export async function syncAssignments(assignments) {
   const settings = await getSettings(); // This now contains `useExactDate`
   const token = settings.TODOIST_TOKEN;
   if (!token) {
-    return { added: [], updated: [], completed: [], skipped: [], errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }] };
+    return { 
+      added: [], 
+      updated: [], 
+      skipped: { local: [], todoist: [], noChanges: [] }, 
+      errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }],
+      summary: { total: 0, processed: 0, failed: 1 }
+    };
   }
 
   const valid = (assignments || []).filter(a => a && a.title);
   const projectId = await getOrCreateProject(settings.projectName || 'School Assignments', token);
   if (!projectId) {
-    return { added: [], updated: [], completed: [], skipped: [], errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }] };
+    return { 
+      added: [], 
+      updated: [], 
+      skipped: { local: [], todoist: [], noChanges: [] }, 
+      errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }],
+      summary: { total: valid.length, processed: 0, failed: 1 }
+    };
   }
 
   const groups = await preventDuplicateSync(valid, projectId, token);
 
-  const results = { added: [], updated: [], completed: [], skipped: [], errors: [] };
+  const results = { 
+    added: [], 
+    updated: [], 
+    skipped: {
+      local: [],      // Completed locally in extension
+      todoist: [],    // Completed in Todoist (found in completed items)
+      noChanges: []   // Active but no changes needed
+    },
+    errors: [],
+    summary: {
+      total: valid.length,
+      processed: 0,
+      failed: 0
+    }
+  };
+
+  log(`Starting sync: ${groups.new.length} new, ${groups.existing.length} existing, ${groups.locallyCompleted.length} skipped`);
 
   // Handle locally completed assignments - skip them entirely
   for (const a of groups.locallyCompleted) {
-    results.skipped.push(a.title + " (already completed locally)");
+    // Determine if this was completed locally or in Todoist
+    if (a.status === "Completed") {
+      results.skipped.local.push(a.title);
+    } else {
+      // Was synced before but not found in active tasks (completed in Todoist)
+      results.skipped.todoist.push(a.title);
+    }
   }
 
   // Handle existing tasks in Todoist
@@ -556,16 +590,24 @@ export async function syncAssignments(assignments) {
         const success = await updateTask(taskId, a, projectId, token, settings);
         if (success) {
           results.updated.push(a.title);
+          results.summary.processed++;
           // Update the sync tracking
           await markTaskAsSynced(a.task_id, taskId);
+          log(`✅ Updated: ${a.title}`);
         } else {
           results.errors.push({ title: a.title, reason: 'API update failed.' });
+          results.summary.failed++;
+          log(`❌ Update failed: ${a.title}`);
         }
       } else {
-        results.skipped.push(a.title);
+        results.skipped.noChanges.push(a.title);
+        results.summary.processed++;
+        log(`⏭️  Skipped (no changes): ${a.title}`);
       }
     } catch (e) {
       results.errors.push({ title: a.title, reason: e.message });
+      results.summary.failed++;
+      log(`❌ Error updating ${a.title}:`, e);
     }
   }
 
@@ -574,23 +616,45 @@ export async function syncAssignments(assignments) {
     try {
       // Double check this isn't a completed task
       if (a.status === "Completed") {
-        results.skipped.push(a.title + " (completed)");
+        results.skipped.local.push(a.title);
+        log(`⏭️  Skipped completed: ${a.title}`);
         continue;
       }
 
       const task = await createTask(a, projectId, token, settings);
       if (task && task.id) {
         results.added.push(a.title);
+        results.summary.processed++;
         // Track this task as synced
         await markTaskAsSynced(a.task_id, task.id);
+        log(`✅ Created: ${a.title}`);
       } else {
-        results.errors.push({ title: a.title, reason: 'API creation failed.' });
+        results.errors.push({ title: a.title, reason: 'API creation failed - no task ID returned.' });
+        results.summary.failed++;
+        log(`❌ Creation failed: ${a.title}`);
       }
       
     } catch (e) {
       results.errors.push({ title: a.title, reason: e.message });
+      results.summary.failed++;
+      log(`❌ Error creating ${a.title}:`, e);
     }
   }
+
+  // Calculate final summary
+  const totalSkipped = results.skipped.local.length + results.skipped.todoist.length + results.skipped.noChanges.length;
+  
+  log(`
+📊 Sync Complete:
+   ✅ Added: ${results.added.length}
+   🔄 Updated: ${results.updated.length}
+   ⏭️  Skipped: ${totalSkipped}
+      • Local completed: ${results.skipped.local.length}
+      • Todoist completed: ${results.skipped.todoist.length}
+      • No changes: ${results.skipped.noChanges.length}
+   ❌ Errors: ${results.errors.length}
+   📈 Total: ${results.summary.total}
+  `);
 
   return results;
 }

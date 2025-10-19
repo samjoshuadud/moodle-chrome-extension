@@ -92,33 +92,78 @@ function showScrapedItems(items, newIds = []) {
   content.scrollTop = content.scrollHeight;
 }
 
-function showSyncResults({ added = [], updated = [], skipped = [], errors = [], filtered = [] }) {
+function showSyncResults(result) {
   ensureSidebar();
   const content = document.getElementById('sidebar-content');
+  
+  // Clear previous messages before showing results
+  content.innerHTML = '';
+  
   const div = document.createElement('div');
 
-  let summaryHTML = `
-    <b>Sync Results:</b>
-    <ul style="margin:4px 0 8px 16px; padding-left: 16px;">
-      <li style="color:#080">Added: ${added.length}</li>
-      <li style="color:#06c">Updated: ${updated.length}</li>
-      <li style="color:#888">Skipped (No Changes): ${skipped.length}</li>
-      <li style="color:#b00">Errors: ${errors.length}</li>
-      <li style="color:#aaa">Filtered (Completed): ${filtered.length}</li>
-    </ul>`;
+  // Handle both old and new result formats
+  const added = result.added || [];
+  const updated = result.updated || [];
+  const errors = result.errors || [];
+  
+  // New structured format
+  const skipped = result.skipped || {};
+  const localSkipped = skipped.local || [];
+  const todoistSkipped = skipped.todoist || [];
+  const noChangesSkipped = skipped.noChanges || [];
+  const totalSkipped = localSkipped.length + todoistSkipped.length + noChangesSkipped.length;
+  
+  // Legacy flat skipped array (backward compatibility)
+  const legacySkipped = Array.isArray(result.skipped) ? result.skipped : [];
+  const finalSkippedCount = totalSkipped || legacySkipped.length;
 
+  const summary = result.summary || { total: 0, processed: 0, failed: 0 };
+
+  let summaryHTML = `
+    <div style="margin-bottom: 12px; padding-bottom: 8px; border-bottom: 2px solid #ddd;">
+      <b>📊 Sync Results:</b> ${summary.total} assignments
+    </div>
+    <ul style="margin: 0 0 12px 0; padding-left: 20px; font-size: 13px;">
+      <li style="color: #080; margin: 4px 0;">✅ <b>Added:</b> ${added.length}</li>
+      <li style="color: #06c; margin: 4px 0;">🔄 <b>Updated:</b> ${updated.length}</li>
+      <li style="color: #666; margin: 4px 0;">⏭️ <b>Skipped:</b> ${finalSkippedCount}</li>
+      ${errors.length > 0 ? `<li style="color: #b00; margin: 4px 0;">❌ <b>Errors:</b> ${errors.length}</li>` : ''}
+    </ul>
+  `;
+
+  // Show detailed breakdown for skipped items (new format)
+  if (localSkipped.length > 0 || todoistSkipped.length > 0 || noChangesSkipped.length > 0) {
+    summaryHTML += `
+      <div style="background: #f9f9f9; padding: 8px 12px; margin-bottom: 8px; border-left: 3px solid #999;">
+        <b style="font-size: 12px;">Skipped breakdown:</b>
+        <ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 12px; color: #555;">
+          ${localSkipped.length > 0 ? `<li>Locally completed: ${localSkipped.length}</li>` : ''}
+          ${todoistSkipped.length > 0 ? `<li>Completed in Todoist: ${todoistSkipped.length}</li>` : ''}
+          ${noChangesSkipped.length > 0 ? `<li>No changes needed: ${noChangesSkipped.length}</li>` : ''}
+        </ul>
+      </div>
+    `;
+  }
+
+  // Show detailed errors if any
   if (errors.length > 0) {
     summaryHTML += `
-      <b style="color:#b00;">Error Details:</b>
-      <ul style="margin:4px 0 8px 16px; padding-left: 16px; font-size: 12px;">
-        ${errors.map(err => `
-          <li>
-            <b>${err.title}</b>: 
-            <span style="color:#555;">${err.reason || 'Unknown API error'}</span>
-          </li>
-        `).join('')}
-      </ul>
+      <div style="background: #fee; padding: 8px 12px; border-left: 3px solid #b00; margin-top: 8px;">
+        <b style="color: #b00; font-size: 12px;">Errors:</b>
+        <ul style="margin: 4px 0 0 0; padding-left: 20px; font-size: 12px; color: #555;">
+          ${errors.map(err => `
+            <li><b>${err.title}</b>: ${err.reason || 'Unknown error'}</li>
+          `).join('')}
+        </ul>
+      </div>
     `;
+  }
+
+  // Simple status message
+  if (errors.length === 0 && (added.length > 0 || updated.length > 0)) {
+    summaryHTML += `<div style="color: #080; font-size: 12px; margin-top: 8px;">✓ Sync completed successfully</div>`;
+  } else if (added.length === 0 && updated.length === 0 && errors.length === 0 && finalSkippedCount > 0) {
+    summaryHTML += `<div style="color: #666; font-size: 12px; margin-top: 8px;">✓ Everything up to date</div>`;
   }
 
   div.innerHTML = summaryHTML;
