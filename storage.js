@@ -5,7 +5,8 @@ export const STORAGE_KEYS = {
   assignments: 'assignments',
   archive: 'assignments_archive',
   lastMergeAt: 'lastMergeAt',
-  lastSyncAt: 'lastSyncAt'
+  lastSyncAt: 'lastSyncAt',
+  syncedTasks: 'syncedTasks' // Track which tasks have been synced to Todoist
 };
 
 export const DEFAULT_SETTINGS = {
@@ -213,5 +214,32 @@ export async function getArchiveStats() {
 
 function tsNow() {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
+}
+
+// Track which tasks have been synced to Todoist
+export async function getSyncedTasks() {
+  const { [STORAGE_KEYS.syncedTasks]: syncedTasks } = await chrome.storage.local.get(STORAGE_KEYS.syncedTasks);
+  return syncedTasks || {};
+}
+
+export async function markTaskAsSynced(taskId, todoistTaskId) {
+  const syncedTasks = await getSyncedTasks();
+  syncedTasks[taskId] = {
+    todoistTaskId,
+    syncedAt: Date.now(),
+    lastSyncedAt: Date.now()
+  };
+  await chrome.storage.local.set({ [STORAGE_KEYS.syncedTasks]: syncedTasks });
+}
+
+export async function isTaskSynced(taskId) {
+  const syncedTasks = await getSyncedTasks();
+  return !!syncedTasks[taskId];
+}
+
+export async function unmarkTaskAsSynced(taskId) {
+  const syncedTasks = await getSyncedTasks();
+  delete syncedTasks[taskId];
+  await chrome.storage.local.set({ [STORAGE_KEYS.syncedTasks]: syncedTasks });
 }
 
