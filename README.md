@@ -61,7 +61,7 @@ In the extension popup, you have an important choice:
 
 ### 3. Sync Your Assignments
 
-1.  Log in to your Moodle account (`tbl.umak.edu.ph`) or your university moodle link.
+1.  Log in to your Moodle account (`tbl.*university*.edu.ph`) or your university moodle link.
 2.  A blue **"⟳ Scrape"** button will appear at the bottom right of the page.
 3.  Click the **Scrape** button. A sidebar will open showing all the assignments it found across your courses.
 4.  The button will change to **"⟳ Sync"**. Click it again.
