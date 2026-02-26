@@ -4,8 +4,7 @@ function log(...args) {
 
 import { getSettings, getSyncedTasks, markTaskAsSynced } from './storage.js';
 
-const TODOIST_BASE = 'https://api.todoist.com/rest/v2';
-const TODOIST_SYNC_BASE = 'https://api.todoist.com/sync/v9';
+const TODOIST_BASE = 'https://api.todoist.com/api/v1';
 
 function headers(token) {
   return {
@@ -13,33 +12,27 @@ function headers(token) {
     'Content-Type': 'application/json'
   };
 }
-
-function syncHeaders(token) {
-  return {
-    'Authorization': `Bearer ${token}`
-  };
-}
 function parseDate(str) {
   if (!str || str === 'No due date' || str === 'No opening date') return null;
-  
+
   // Handles formats like "Saturday, 30 August 2025, 11:59 PM"
   const complexMatch = str.match(/(\w+,\s+\d{1,2}\s+\w+\s+\d{4},\s+\d{1,2}:\d{2}\s+[AP]M)/i);
   if (complexMatch) {
-      const d = new Date(complexMatch[1]);
-      if (!isNaN(d.getTime())) return d;
+    const d = new Date(complexMatch[1]);
+    if (!isNaN(d.getTime())) return d;
   }
-  
+
   // Handles formats like "30 August 2025"
   const simpleMatch = str.match(/(\d{1,2}\s+\w+\s+\d{4})/i);
-   if (simpleMatch) {
-      const d = new Date(simpleMatch[1]);
-      if (!isNaN(d.getTime())) return d;
+  if (simpleMatch) {
+    const d = new Date(simpleMatch[1]);
+    if (!isNaN(d.getTime())) return d;
   }
-  
+
   // Fallback for YYYY-MM-DD and other standard formats
   const d = new Date(str);
   if (isNaN(d.getTime())) return null;
-  
+
   return d;
 }
 
@@ -51,53 +44,85 @@ function formatDate(d) {
 
 export async function testConnection(token) {
   try {
+    log('Testing connection to Todoist API v1...');
     const res = await fetch(`${TODOIST_BASE}/projects`, { headers: headers(token) });
+    log('Test connection response:', res.status, res.statusText);
+    if (!res.ok) {
+      const text = await res.text();
+      log('Test connection failed body:', text);
+    }
     return res.ok;
-  } catch {
+  } catch (e) {
+    log('Test connection error:', e);
     return false;
   }
 }
 
 export async function getOrCreateProject(projectName, token) {
+  log('Looking for project:', projectName);
   const h = headers(token);
   const list = await fetch(`${TODOIST_BASE}/projects`, { headers: h });
   if (list.ok) {
-    const projects = await list.json();
+    const data = await list.json();
+    const projects = data.results || data;
+    log('Fetched projects:', projects.length, 'projects found');
     const found = projects.find(p => p.name === projectName);
-    if (found) return found.id;
+    if (found) {
+      log('Found existing project:', found.name, 'ID:', found.id);
+      return found.id;
+    }
+    log('Project not found, creating new project:', projectName);
+  } else {
+    const errText = await list.text();
+    log('Failed to list projects:', list.status, errText);
   }
   const create = await fetch(`${TODOIST_BASE}/projects`, {
     method: 'POST',
     headers: h,
     body: JSON.stringify({ name: projectName, color: 'blue' })
   });
-  if (!create.ok) return null;
+  if (!create.ok) {
+    const errText = await create.text();
+    log('Failed to create project:', create.status, errText);
+    return null;
+  }
   const proj = await create.json();
+  log('Created project:', proj.name, 'ID:', proj.id);
   return proj.id;
 }
 
 export async function getAllAssignmentsFromTodoist(projectName, token) {
   try {
     const projectId = await getProjectIdIfExists(projectName, token);
-    if (!projectId) return [];
+    if (!projectId) {
+      log('getAllAssignmentsFromTodoist: No project found for', projectName);
+      return [];
+    }
+    log('Fetching all tasks for project:', projectId);
     const res = await fetch(`${TODOIST_BASE}/tasks?project_id=${encodeURIComponent(projectId)}`, { headers: headers(token) });
-    if (!res.ok) return [];
-    return await res.json();
+    if (!res.ok) {
+      const errText = await res.text();
+      log('Failed to fetch tasks:', res.status, errText);
+      return [];
+    }
+    const data = await res.json();
+    const tasks = data.results || data;
+    log('Fetched', tasks.length, 'tasks from Todoist');
+    return tasks;
   } catch (e) {
     log('Error fetching assignments from Todoist:', e);
     return [];
   }
 }
 
-// Get project stats (number of tasks, etc.)
 export async function getProjectStats(projectName, token) {
   try {
     const projectId = await getProjectIdIfExists(projectName, token);
     if (!projectId) return { total: 0, completed: 0 };
     const res = await fetch(`${TODOIST_BASE}/tasks?project_id=${encodeURIComponent(projectId)}`, { headers: headers(token) });
     if (!res.ok) return { total: 0, completed: 0 };
-    const tasks = await res.json();
-    // Todoist REST API does not return completed tasks by default
+    const data = await res.json();
+    const tasks = data.results || data;
     return { total: tasks.length, completed: 0 };
   } catch (e) {
     log('Error getting project stats:', e);
@@ -105,7 +130,6 @@ export async function getProjectStats(projectName, token) {
   }
 }
 
-// Update task completion status (close task)
 export async function updateTaskStatus(taskId, completed, token) {
   try {
     if (completed) {
@@ -121,7 +145,6 @@ export async function updateTaskStatus(taskId, completed, token) {
   }
 }
 
-// Delete a task by assignment (using task_id in description)
 export async function deleteAssignmentTask(assignment, projectName, token) {
   try {
     const projectId = await getProjectIdIfExists(projectName, token);
@@ -145,7 +168,6 @@ export async function syncStatusFromTodoist(localAssignments, projectName, token
       const tid = a.task_id;
       const t = tasks.find(t => extractTaskIdFromDescription(t.description) === tid);
       if (t) {
-        // Todoist REST API does not return completed tasks by default
         statusMap[tid] = 'Pending';
       } else {
         // If not found, could be completed or deleted
@@ -160,11 +182,23 @@ export async function syncStatusFromTodoist(localAssignments, projectName, token
 }
 
 export async function getProjectIdIfExists(projectName, token) {
+  log('getProjectIdIfExists: Looking for project:', projectName);
   const h = headers(token);
   const list = await fetch(`${TODOIST_BASE}/projects`, { headers: h });
-  if (!list.ok) return null;
-  const projects = await list.json();
+  if (!list.ok) {
+    const errText = await list.text();
+    log('getProjectIdIfExists: Failed to list projects:', list.status, errText);
+    return null;
+  }
+  const data = await list.json();
+  const projects = data.results || data;
+  log('getProjectIdIfExists: Found', projects.length, 'projects');
   const found = projects.find(p => p.name === projectName);
+  if (found) {
+    log('getProjectIdIfExists: Matched project:', found.name, 'ID:', found.id);
+  } else {
+    log('getProjectIdIfExists: No project matched name:', projectName);
+  }
   return found ? found.id : null;
 }
 
@@ -225,7 +259,7 @@ export function calculateReminderDate(assignment) {
   if (realDueDate && realDueDate >= today && reminderDate < today) {
     reminderDate = new Date(today);
   }
-  
+
   return formatDate(reminderDate);
 }
 
@@ -280,61 +314,75 @@ export function formatTaskDescription(assignment) {
   if (due && due !== 'No due date') {
     parts.push(`📅 Deadline: ${due}`);
   }
-  
+
   const url = assignment?.origin_url || '';
   if (url) {
     parts.push(`🔗 Link: ${url}`);
   }
-  
+
   const course = assignment?.course || '';
   if (course) parts.push(`📚 Course: ${String(course).replace(/\r?\n/g, ' ').trim()}`);
-  
+
   const source = assignment?.source || '';
   if (source) parts.push(`📧 Source: ${source}`);
-  
+
   const taskId = assignment?.task_id || '';
   if (taskId) parts.push(`🔗 Task ID: ${taskId}`);
-  
+
   if (assignment?.course_code) parts.push(`📚 Course: ${assignment.course_code}`);
-  
+
   if (assignment?.activity_type) parts.push(`🔧 Type: ${assignment.activity_type}`);
-  
+
   return parts.join('\n');
 }
 async function getTasks(projectId, token) {
+  log('getTasks: Fetching active tasks for project:', projectId);
   const res = await fetch(`${TODOIST_BASE}/tasks?project_id=${encodeURIComponent(projectId)}`, { headers: headers(token) });
-  if (!res.ok) return [];
-  return res.json();
+  if (!res.ok) {
+    const errText = await res.text();
+    log('getTasks: Failed:', res.status, errText);
+    return [];
+  }
+  const data = await res.json();
+  // API v1 returns paginated response: { results: [...], next_cursor }
+  const tasks = data.results || data;
+  log('getTasks: Got', tasks.length, 'active tasks');
+  return tasks;
 }
 
 /**
- * Get all completed items for a project using Sync API v9
- * This allows us to check if a task has been completed in Todoist
+ * Get all completed items for a project using Todoist API v1
+ * Uses /tasks/completed/by_completion_date endpoint
  * @param {string} projectId - The project ID
  * @param {string} token - Todoist API token
  * @returns {Promise<Array>} Array of completed items
  */
 async function getCompletedItems(projectId, token) {
   try {
+    log('getCompletedItems: Fetching completed items for project:', projectId);
     const params = new URLSearchParams({
       project_id: projectId,
       limit: 200 // Maximum allowed
     });
-    
+
     const res = await fetch(
-      `${TODOIST_SYNC_BASE}/completed/get_all?${params}`,
-      { headers: syncHeaders(token) }
+      `${TODOIST_BASE}/tasks/completed/by_completion_date?${params}`,
+      { headers: headers(token) }
     );
-    
+
     if (!res.ok) {
-      log('Error fetching completed items:', res.status, res.statusText);
+      const errText = await res.text();
+      log('getCompletedItems: Failed:', res.status, res.statusText, errText);
       return [];
     }
-    
+
     const data = await res.json();
-    return data.items || [];
+    log('getCompletedItems: Raw response keys:', Object.keys(data));
+    const items = data.items || data.results || [];
+    log('getCompletedItems: Got', items.length, 'completed items');
+    return items;
   } catch (e) {
-    log('Error fetching completed items:', e);
+    log('getCompletedItems: Error:', e);
     return [];
   }
 }
@@ -367,33 +415,33 @@ export async function preventDuplicateSync(assignments, projectId, token) {
   const tasks = await getTasks(projectId, token);
   const completedItems = await getCompletedItems(projectId, token);
   const syncedTasks = await getSyncedTasks();
-  
+
   const existing = new Map();
   const completed = new Map();
-  
+
   // Map active tasks
   for (const t of tasks) {
     const tid = extractTaskIdFromDescription(t.description || '');
     if (tid) existing.set(tid, { todoistTaskId: t.id, isActive: true });
   }
-  
+
   // Map completed tasks
   for (const item of completedItems) {
-    const tid = extractTaskIdFromDescription(item.content || '');
-    if (tid) completed.set(tid, { todoistTaskId: item.task_id, isCompleted: true });
+    const tid = extractTaskIdFromDescription(item.description || '');
+    if (tid) completed.set(tid, { todoistTaskId: item.id, isCompleted: true });
   }
-  
+
   const groups = { new: [], existing: [], locallyCompleted: [] };
-  
+
   for (const a of assignments) {
     const tid = a.task_id || '';
-    
+
     // Skip if locally marked as completed
     if (a.status === "Completed") {
       groups.locallyCompleted.push(a);
       continue;
     }
-    
+
     if (tid && existing.has(tid)) {
       // Task exists in Todoist (active)
       const taskInfo = existing.get(tid);
@@ -412,7 +460,7 @@ export async function preventDuplicateSync(assignments, projectId, token) {
       groups.new.push(a);
     }
   }
-  
+
   log(`Sync categorization: ${groups.new.length} new, ${groups.existing.length} existing, ${groups.locallyCompleted.length} completed/skipped`);
   return groups;
 }
@@ -461,6 +509,7 @@ export async function createTask(assignment, projectId, token, settings) {
     body.labels = [courseCode.toLowerCase()];
   }
 
+  log('createTask: Creating task with body:', JSON.stringify(body));
   const response = await fetch(`${TODOIST_BASE}/tasks`, {
     method: "POST",
     headers: headers(token),
@@ -469,10 +518,13 @@ export async function createTask(assignment, projectId, token, settings) {
 
   if (!response.ok) {
     const text = await response.text();
+    log('createTask: Failed:', response.status, text);
     throw new Error(`Failed to create task: ${response.status} - ${text}`);
   }
 
-  return await response.json();
+  const result = await response.json();
+  log('createTask: Success, task ID:', result.id);
+  return result;
 }
 
 export async function updateTask(taskId, assignment, projectId, token, settings) {
@@ -483,11 +535,9 @@ export async function updateTask(taskId, assignment, projectId, token, settings)
   const body = {
     content,
     description,
-    project_id: projectId,
     priority: 2,
   };
 
-  // FIX: Properly parse and format the date
   if (settings.useExactDate) {
     const moodleDate = parseDate(assignment.due_date);
     body.due_string = moodleDate ? formatDate(moodleDate) : 'no date';
@@ -504,6 +554,7 @@ export async function updateTask(taskId, assignment, projectId, token, settings)
     body.labels = [courseCode.toLowerCase()];
   }
 
+  log('updateTask: Updating task', taskId, 'with body:', JSON.stringify(body));
   const response = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, {
     method: "POST",
     headers: headers(token),
@@ -512,10 +563,13 @@ export async function updateTask(taskId, assignment, projectId, token, settings)
 
   if (!response.ok) {
     const text = await response.text();
+    log('updateTask: Failed:', response.status, text);
     throw new Error(`Failed to update task: ${response.status} - ${text}`);
   }
 
-  return await response.json();
+  const result = await response.json();
+  log('updateTask: Success, task ID:', result.id);
+  return result;
 }
 
 export async function deleteTask(taskId, token) {
@@ -527,10 +581,10 @@ export async function syncAssignments(assignments) {
   const settings = await getSettings(); // This now contains `useExactDate`
   const token = settings.TODOIST_TOKEN;
   if (!token) {
-    return { 
-      added: [], 
-      updated: [], 
-      skipped: { local: [], todoist: [], noChanges: [] }, 
+    return {
+      added: [],
+      updated: [],
+      skipped: { local: [], todoist: [], noChanges: [] },
       errors: [{ title: 'Sync Error', reason: 'Todoist token not configured.' }],
       summary: { total: 0, processed: 0, failed: 1 }
     };
@@ -539,10 +593,10 @@ export async function syncAssignments(assignments) {
   const valid = (assignments || []).filter(a => a && a.title);
   const projectId = await getOrCreateProject(settings.projectName || 'School Assignments', token);
   if (!projectId) {
-    return { 
-      added: [], 
-      updated: [], 
-      skipped: { local: [], todoist: [], noChanges: [] }, 
+    return {
+      added: [],
+      updated: [],
+      skipped: { local: [], todoist: [], noChanges: [] },
       errors: [{ title: 'Sync Error', reason: `Project '${settings.projectName}' not found.` }],
       summary: { total: valid.length, processed: 0, failed: 1 }
     };
@@ -550,9 +604,9 @@ export async function syncAssignments(assignments) {
 
   const groups = await preventDuplicateSync(valid, projectId, token);
 
-  const results = { 
-    added: [], 
-    updated: [], 
+  const results = {
+    added: [],
+    updated: [],
     skipped: {
       local: [],      // Completed locally in extension
       todoist: [],    // Completed in Todoist (found in completed items)
@@ -633,7 +687,7 @@ export async function syncAssignments(assignments) {
         results.summary.failed++;
         log(`❌ Creation failed: ${a.title}`);
       }
-      
+
     } catch (e) {
       results.errors.push({ title: a.title, reason: e.message });
       results.summary.failed++;
@@ -643,7 +697,7 @@ export async function syncAssignments(assignments) {
 
   // Calculate final summary
   const totalSkipped = results.skipped.local.length + results.skipped.todoist.length + results.skipped.noChanges.length;
-  
+
   log(`
 📊 Sync Complete:
    ✅ Added: ${results.added.length}
