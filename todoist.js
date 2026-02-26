@@ -133,11 +133,15 @@ export async function getProjectStats(projectName, token) {
 export async function updateTaskStatus(taskId, completed, token) {
   try {
     if (completed) {
+      log('updateTaskStatus: Closing task', taskId);
       const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}/close`, { method: 'POST', headers: headers(token) });
-      return res.status === 204;
+      log('updateTaskStatus: Close response:', res.status);
+      return res.ok;
     } else {
+      log('updateTaskStatus: Reopening task', taskId);
       const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}/reopen`, { method: 'POST', headers: headers(token) });
-      return res.status === 204;
+      log('updateTaskStatus: Reopen response:', res.status);
+      return res.ok;
     }
   } catch (e) {
     log('Error updating task status:', e);
@@ -573,8 +577,10 @@ export async function updateTask(taskId, assignment, projectId, token, settings)
 }
 
 export async function deleteTask(taskId, token) {
+  log('deleteTask: Deleting task', taskId);
   const res = await fetch(`${TODOIST_BASE}/tasks/${taskId}`, { method: 'DELETE', headers: headers(token) });
-  return res.status === 204;
+  log('deleteTask: Response:', res.status);
+  return res.ok;
 }
 
 export async function syncAssignments(assignments) {
